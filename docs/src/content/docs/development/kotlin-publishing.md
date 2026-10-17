@@ -130,6 +130,11 @@ AAR carries that one library per ABI and redistributes no `libc++_shared.so`.
 Runtime AARs include the native dependency notices and the Android NDK notice
 under `META-INF/licenses`.
 
+Each Android runtime AAR also contains a Prefab module, `maplibre-native-c`,
+with the C headers and a second copy of each `jni/` library for a host's native
+build to link. The copy doubles the native payload of the AAR, but an APK
+packages only the `jni/` library.
+
 Each Android runtime AAR also contains the JVM helper built from the pinned,
 patched `rustls-platform-verifier` checkout acquired by mise, its consumer R8
 rule, and the upstream licenses. The helper and Rust JNI descriptors use the
