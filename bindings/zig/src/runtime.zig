@@ -1157,9 +1157,10 @@ pub const RuntimeEventMask = struct {
     fn toRaw(self: RuntimeEventMask) u64 {
         @setEvalBranchQuota(4000);
         var raw = self.unknown_bits;
-        inline for (@typeInfo(RuntimeEventMask).@"struct".fields) |field| {
-            if (field.type == bool) {
-                if (@field(self, field.name)) raw |= maskBitForField(field.name);
+        const mask_info = @typeInfo(RuntimeEventMask).@"struct";
+        inline for (mask_info.field_names, mask_info.field_types) |field_name, field_type| {
+            if (field_type == bool) {
+                if (@field(self, field_name)) raw |= maskBitForField(field_name);
             }
         }
         return raw;
@@ -1169,10 +1170,11 @@ pub const RuntimeEventMask = struct {
         @setEvalBranchQuota(4000);
         var mask = RuntimeEventMask{};
         mask.unknown_bits = raw & ~@as(u64, c.MLN_RUNTIME_EVENT_MASK_ALL);
-        inline for (@typeInfo(RuntimeEventMask).@"struct".fields) |field| {
-            if (field.type == bool) {
-                if (raw & maskBitForField(field.name) != 0) {
-                    @field(mask, field.name) = true;
+        const mask_info = @typeInfo(RuntimeEventMask).@"struct";
+        inline for (mask_info.field_names, mask_info.field_types) |field_name, field_type| {
+            if (field_type == bool) {
+                if (raw & maskBitForField(field_name) != 0) {
+                    @field(mask, field_name) = true;
                 }
             }
         }
@@ -1961,7 +1963,7 @@ fn eventViewAt(
     return .{
         .event_type = RuntimeEventType.fromRaw(native_event.type),
         .source_type = RuntimeEventSourceType.fromRaw(native_event.source_type),
-        .source = @enumFromInt(native_event.source),
+        .source = @fromBackingInt(@intCast(native_event.source)),
         .source_id = mapIdForNativeSource(runtime_state, native_event.source_type, native_event.source),
         .payload_type = RuntimeEventPayloadType.fromRaw(native_event.payload_type),
         .code = native_event.code,
@@ -2135,7 +2137,7 @@ fn registerRuntimeState(native_handle: c.mln_runtime, runtime_state: *RuntimeSta
     defer unlockRuntimeRegistry();
 
     try runtime_handle_registry.put(std.heap.smp_allocator, native_handle, runtime_state);
-    return @enumFromInt(native_handle);
+    return @fromBackingInt(@intCast(native_handle));
 }
 
 fn runtimeState(handle: RuntimeHandle) ?*RuntimeState {
@@ -2145,7 +2147,7 @@ fn runtimeState(handle: RuntimeHandle) ?*RuntimeState {
 }
 
 fn runtimeStateLocked(handle: RuntimeHandle) ?*RuntimeState {
-    return runtime_handle_registry.get(@intFromEnum(handle));
+    return runtime_handle_registry.get(@backingInt(handle));
 }
 
 pub fn lease(handle: *RuntimeHandle) status.BindingError!RuntimeLease {
@@ -2158,7 +2160,7 @@ fn runtimeLease(handle: RuntimeHandle) status.BindingError!RuntimeLease {
 
     const runtime_state = runtimeStateLocked(handle) orelse return error.ClosedHandle;
     if (runtime_state.closing) return error.ActiveBorrow;
-    const runtime: c.mln_runtime = @intFromEnum(handle);
+    const runtime: c.mln_runtime = @backingInt(handle);
     _ = runtime_state.active_leases.fetchAdd(1, .seq_cst);
     return .{
         .state = runtime_state,
@@ -2178,7 +2180,7 @@ fn beginRuntimeClose(handle: RuntimeHandle) status.Error!?RuntimeClose {
     lockRuntimeRegistry();
     defer unlockRuntimeRegistry();
 
-    const runtime_state = runtime_handle_registry.get(@intFromEnum(handle)) orelse return null;
+    const runtime_state = runtime_handle_registry.get(@backingInt(handle)) orelse return null;
     if (runtime_state.closing) return error.ActiveBorrow;
     if (runtime_state.active_leases.load(.seq_cst) != 0) return error.ActiveBorrow;
     const runtime_registry = runtime_state.registry orelse return null;
@@ -2190,7 +2192,7 @@ fn beginRuntimeClose(handle: RuntimeHandle) status.Error!?RuntimeClose {
         try status.setBindingDiagnostic(runtime_state.diagnostic_store, "runtime has live offline operations");
         return error.InvalidState;
     }
-    const runtime: c.mln_runtime = @intFromEnum(handle);
+    const runtime: c.mln_runtime = @backingInt(handle);
     runtime_state.closing = true;
     return .{
         .state = runtime_state,
@@ -2211,7 +2213,7 @@ fn finishRuntimeClose(handle: RuntimeHandle) ?*RuntimeState {
     lockRuntimeRegistry();
     defer unlockRuntimeRegistry();
 
-    const entry = runtime_handle_registry.fetchRemove(@intFromEnum(handle)) orelse return null;
+    const entry = runtime_handle_registry.fetchRemove(@backingInt(handle)) orelse return null;
     const runtime_state = entry.value;
     runtime_state.registry = null;
     return runtime_state;
@@ -2254,15 +2256,15 @@ fn registerResourceRequestState(
     defer unlockResourceRequestRegistry();
 
     try resource_request_registry.put(std.heap.smp_allocator, native_handle, request_state);
-    return @enumFromInt(native_handle);
+    return @fromBackingInt(@intCast(native_handle));
 }
 
 fn resourceRequestState(handle: ResourceRequestHandle) ?*ResourceRequestState {
-    return resource_request_registry.get(@intFromEnum(handle));
+    return resource_request_registry.get(@backingInt(handle));
 }
 
 fn unregisterResourceRequestState(handle: ResourceRequestHandle) ?*ResourceRequestState {
-    const entry = resource_request_registry.fetchRemove(@intFromEnum(handle)) orelse return null;
+    const entry = resource_request_registry.fetchRemove(@backingInt(handle)) orelse return null;
     return entry.value;
 }
 
@@ -2284,15 +2286,15 @@ fn registerWakeSourceState(
     defer unlockWakeSourceRegistry();
 
     try wake_source_registry.put(std.heap.smp_allocator, native_handle, source_state);
-    return @enumFromInt(native_handle);
+    return @fromBackingInt(@intCast(native_handle));
 }
 
 fn wakeSourceState(handle: WakeSourceHandle) ?*WakeSourceState {
-    return wake_source_registry.get(@intFromEnum(handle));
+    return wake_source_registry.get(@backingInt(handle));
 }
 
 fn unregisterWakeSourceState(handle: WakeSourceHandle) ?*WakeSourceState {
-    const entry = wake_source_registry.fetchRemove(@intFromEnum(handle)) orelse return null;
+    const entry = wake_source_registry.fetchRemove(@backingInt(handle)) orelse return null;
     return entry.value;
 }
 
@@ -2324,17 +2326,17 @@ fn registerOfflineOperationState(operation_state: *OfflineOperationState) std.me
 }
 
 fn offlineOperationHandle(index: usize, generation: u64) OfflineOperationHandle {
-    return @enumFromInt((@as(u128, generation) << 64) | @as(u128, @intCast(index)));
+    return @fromBackingInt(@intCast((@as(u128, generation) << 64) | @as(u128, @intCast(index))));
 }
 
 fn offlineOperationIndex(handle: OfflineOperationHandle) ?usize {
-    const index = @intFromEnum(handle) & std.math.maxInt(u64);
+    const index = @backingInt(handle) & std.math.maxInt(u64);
     if (index == 0 or index > std.math.maxInt(usize)) return null;
     return @intCast(index);
 }
 
 fn offlineOperationGeneration(handle: OfflineOperationHandle) u64 {
-    return @intCast(@intFromEnum(handle) >> 64);
+    return @intCast(@backingInt(handle) >> 64);
 }
 
 fn offlineOperationState(handle: OfflineOperationHandle) ?*OfflineOperationState {
@@ -2727,7 +2729,7 @@ fn nulTerminated(
         try status.setBindingDiagnostic(diagnostic_store, diagnostic_message);
         return error.InvalidString;
     }
-    return allocator.dupeZ(u8, value);
+    return allocator.dupeSentinel(u8, value, 0);
 }
 
 const offline_style_url_for_testing = "http://example.com/offline-style.json";
@@ -2812,7 +2814,7 @@ fn testingEventView(events: []const u8, index: usize) RuntimeEventView {
 }
 
 test "drained events decode the payload union at the reported stride" {
-    var events = [_]u8{0} ** (3 * testing_event_size);
+    var events: [3 * testing_event_size]u8 = @splat(0);
 
     var tile_action = std.mem.zeroes(c.mln_runtime_event);
     tile_action.type = c.MLN_RUNTIME_EVENT_MAP_TILE_ACTION;
@@ -2876,7 +2878,7 @@ test "drained events decode the payload union at the reported stride" {
 }
 
 test "an unknown drained event preserves its raw domains and payload window" {
-    var events = [_]u8{0} ** testing_event_size;
+    var events: [testing_event_size]u8 = @splat(0);
 
     var unknown = std.mem.zeroes(c.mln_runtime_event);
     unknown.type = 0xffff;
@@ -2892,7 +2894,7 @@ test "an unknown drained event preserves its raw domains and payload window" {
     try std.testing.expect(std.meta.eql(view.event_type, RuntimeEventType{ .unknown = 0xffff }));
     try std.testing.expect(std.meta.eql(view.source_type, RuntimeEventSourceType{ .unknown = 0xbeef }));
     // A source type this build cannot name still names its source.
-    try std.testing.expectEqual(@as(u64, 0x5eed_1234), @intFromEnum(view.source));
+    try std.testing.expectEqual(@as(u64, 0x5eed_1234), @backingInt(view.source));
     try std.testing.expect(std.meta.eql(view.payload_type, RuntimeEventPayloadType{ .unknown = 0xfeed }));
     try std.testing.expectEqual(@as(u32, 0xfeed), view.payload.unknown.payload_type);
     try std.testing.expectEqual(window_size, view.payload.unknown.bytes.len);
@@ -2901,12 +2903,12 @@ test "an unknown drained event preserves its raw domains and payload window" {
     var owned = try view.toOwned(std.testing.allocator);
     defer owned.deinit();
     @memset(events[payload_offset..], 0);
-    try std.testing.expectEqualSlices(u8, &[_]u8{0xa5} ** window_size, owned.payload.unknown.bytes);
-    try std.testing.expectEqualSlices(u8, &[_]u8{0} ** window_size, view.payload.unknown.bytes);
+    try std.testing.expectEqualSlices(u8, &@as([window_size]u8, @splat(0xa5)), owned.payload.unknown.bytes);
+    try std.testing.expectEqualSlices(u8, &@as([window_size]u8, @splat(0)), view.payload.unknown.bytes);
 }
 
 test "a map event whose map this binding does not track still names its source" {
-    var events = [_]u8{0} ** testing_event_size;
+    var events: [testing_event_size]u8 = @splat(0);
 
     var orphaned = std.mem.zeroes(c.mln_runtime_event);
     orphaned.type = c.MLN_RUNTIME_EVENT_MAP_LOADING_FAILED;
@@ -2917,7 +2919,7 @@ test "a map event whose map this binding does not track still names its source" 
     const view = testingEventView(&events, 0);
     try std.testing.expect(std.meta.eql(view.source_type, RuntimeEventSourceType.map));
     try std.testing.expectEqual(@as(?values.MapId, null), view.source_id);
-    try std.testing.expectEqual(@as(u64, 0xfeed_face), @intFromEnum(view.source));
+    try std.testing.expectEqual(@as(u64, 0xfeed_face), @backingInt(view.source));
 
     // The copy keeps the identity the borrow reported.
     var owned = try view.toOwned(std.testing.allocator);
@@ -2931,7 +2933,7 @@ test "raw event masks reject bits outside the mask enum" {
 
     var runtime = try RuntimeHandle.create(std.testing.allocator, .{}, &store);
     defer runtime.close() catch @panic("runtime close failed");
-    const native_runtime: c.mln_runtime = @intFromEnum(runtime);
+    const native_runtime: c.mln_runtime = @backingInt(runtime);
 
     // The binding can retain an unnamed bit reported by a newer library, but
     // this native library still rejects bits it does not support.
