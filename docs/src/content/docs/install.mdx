@@ -253,6 +253,31 @@ from the repository name rather than from the manifest, so name it as
 Install the [C library](#build-against-a-prefix), then export `PKG_CONFIG_PATH`
 before you build.
 
+### TypeScript
+
+<Aside type="caution" title="Build from source">
+  The TypeScript binding publishes no packages yet. Build it from a checkout of
+  this repository.
+</Aside>
+
+The binding runs on Node.js 24.11, Bun 1.4.3, Deno 2.9.7, and later, on Linux
+with glibc and on macOS. Pack it for your preset in the checkout, then install
+the tarballs, which contain the native library:
+
+```bash frame="terminal"
+mise run //bindings/typescript:pack linux-gnu-x64-vulkan
+npm install path/to/maplibre-native-ffi/bindings/typescript/build/npm/*.tgz
+```
+
+When several backend packages are installed, set `MAPLIBRE_NATIVE_FFI_BACKEND`
+to `opengl`, `metal`, or `vulkan`. Deno imports the package as
+`npm:@maplibre/native-ffi` and needs `--allow-ffi --allow-read --allow-env`.
+
+On OpenHarmony, build the library with
+`mise -E ohos run //bindings/typescript:build <preset>`, ship it with the SDK's
+`libc++_shared.so` in the application's `libs/<abi>` directory, and bundle
+`bindings/typescript/src/arkts.ts`.
+
 ### Zig
 
 <SnapshotOnly />
