@@ -1,45 +1,28 @@
 import '../../error/maplibre_exception.dart';
+import '../../values.dart';
+import '../c/maplibre_native_c.g.dart' as raw;
 
-/// Native C status code for success.
-const int nativeStatusOk = 0;
+const int nativeStatusOk = raw.MLN_STATUS_OK;
 
-/// Native C status code for invalid arguments.
-const int nativeStatusInvalidArgument = -1;
+const int nativeStatusInvalidArgument = raw.MLN_STATUS_INVALID_ARGUMENT;
 
-/// Native C status code for invalid state.
-const int nativeStatusInvalidState = -2;
+const int nativeStatusInvalidState = raw.MLN_STATUS_INVALID_STATE;
 
-/// Native C status code for wrong-thread access.
-const int nativeStatusWrongThread = -3;
+const int nativeStatusUnsupported = raw.MLN_STATUS_UNSUPPORTED;
 
-/// Native C status code for unsupported behavior.
-const int nativeStatusUnsupported = -4;
+const int nativeStatusNativeError = raw.MLN_STATUS_NATIVE_ERROR;
 
-/// Native C status code for converted native errors.
-const int nativeStatusNativeError = -5;
-
-/// Converts a native status code into the public Dart exception model.
 void checkNativeStatus(int statusCode, String Function() diagnostic) {
   if (statusCode == nativeStatusOk) {
     return;
   }
-  throw MaplibreException.forNativeStatusCode(statusCode, diagnostic());
+  throw MaplibreException(Status.fromRawValue(statusCode), diagnostic());
 }
 
-/// Reports a Dart-side invalid argument before calling native code.
 Never throwInvalidArgument(String diagnostic) {
-  throw MaplibreException.invalidArgument(diagnostic);
+  throw MaplibreException(Status.invalidArgument, diagnostic);
 }
 
-/// Reports a Dart-side invalid state before calling native code.
 Never throwInvalidState(String diagnostic) {
-  throw MaplibreException.invalidState(diagnostic);
-}
-
-/// Reports Dart-side owner-isolate misuse before calling native code.
-Never throwWrongThread(String diagnostic) {
-  throw MaplibreException.forNativeStatusCode(
-    nativeStatusWrongThread,
-    diagnostic,
-  );
+  throw MaplibreException(Status.invalidState, diagnostic);
 }

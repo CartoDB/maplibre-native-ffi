@@ -7,9 +7,9 @@ import { Aside } from "@astrojs/starlight/components";
 
 export const SnapshotOnly = () => (
   <Aside type="caution" title="Snapshot only">
-    This binding has no tagged release yet, and a snapshot floats with `main`, so
-    package names, coordinates, and the C ABI change between snapshots. Releases
-    begin when there is a known use case, so file a GitHub issue to request one.
+    This binding has no tagged release yet. Snapshots follow `main`, and package
+    coordinates and the C ABI may change. File a GitHub issue to request a tagged
+    release.
   </Aside>
 );
 
@@ -65,8 +65,7 @@ zip's checksum from `SHA256SUMS`.
 ```
 
 Swift imports the module `MaplibreNativeC`, and C includes
-`<MaplibreNativeC/maplibre_native_c.h>`. The callback adapter and plugin
-headers are the submodules `MaplibreNativeC.CallbackAdapter` and
+`<MaplibreNativeC/maplibre_native_c.h>`. The plugin header is the submodule
 `MaplibreNativeC.Plugin`.
 
 ## Bindings

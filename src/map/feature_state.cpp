@@ -9,7 +9,6 @@
 
 #include "map/feature_state.hpp"
 
-#include "bytes/buffer.hpp"
 #include "diagnostics/diagnostics.hpp"
 #include "geojson/geojson.hpp"
 #include "maplibre_native_c.h"
@@ -35,12 +34,10 @@ auto string_from_view(mln_buffer_view string) -> std::string {
   return std::string{static_cast<const char*>(string.data), string.size};
 }
 
-auto update_has_source(
-  const mln::UpdateParameters& update, const std::string& source_id
+auto selector_has_field(
+  const mln_feature_state_selector& selector, uint32_t field
 ) -> bool {
-  return std::ranges::any_of(*update.sources, [&](const auto& source) {
-    return source->id == source_id;
-  });
+  return (selector.fields & field) != 0;
 }
 
 auto merge_state(mln::FeatureState& target, const mln::FeatureState& source)
@@ -198,12 +195,6 @@ auto FeatureStateStore::snapshot() const
   -> std::shared_ptr<const FeatureStateSnapshot> {
   const std::scoped_lock lock{mutex_};
   return published_;
-}
-
-auto selector_has_field(
-  const mln_feature_state_selector& selector, uint32_t field
-) -> bool {
-  return (selector.fields & field) != 0;
 }
 
 auto validate_feature_state_selector(
@@ -391,22 +382,19 @@ void apply_feature_state_diff(
       applied.sources[source->id] = *desired_layers;
     }
   }
-
-  std::erase_if(applied.sources, [&](const auto& entry) {
-    return !update_has_source(update, entry.first);
-  });
 }
 
-void remember_rendered_sources(
+void reconcile_feature_state_sources(
   std::unordered_set<std::string>& rendered_source_ids,
-  const mln::UpdateParameters& update
+  FeatureStateSnapshot& applied, const mln::UpdateParameters& update
 ) {
-  std::erase_if(rendered_source_ids, [&](const auto& source_id) {
-    return !update_has_source(update, source_id);
-  });
+  rendered_source_ids.clear();
   for (const auto& source : *update.sources) {
     rendered_source_ids.insert(source->id);
   }
+  std::erase_if(applied.sources, [&](const auto& entry) {
+    return !rendered_source_ids.contains(entry.first);
+  });
 }
 
 }  // namespace mln::core

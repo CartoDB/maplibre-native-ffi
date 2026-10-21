@@ -1,77 +1,78 @@
 ---
 title: Overview
-description: Set up a development environment and run the common tasks.
+description:
+  Set up a development environment, build any target, and run the common tasks.
 sidebar:
   order: 1
 ---
 
-This repository holds a C API for MapLibre Native and the language bindings that
-wrap it. The C API covers the core of MapLibre Native: runtimes, resources,
-maps, cameras, events, diagnostics, and render targets. Convenience features
-such as snapshotting, and platform integrations such as gestures, belong to
-higher-level SDKs outside this repository.
-[Concepts](/maplibre-native-ffi/concepts/) explains the model, and the
-[Binding specification](/maplibre-native-ffi/development/binding-specification/)
-states what every binding must do.
+This page covers machine setup and the parts of the workflow that span the
+repository.
+[AGENTS.md](https://github.com/maplibre/maplibre-native-ffi/blob/main/AGENTS.md)
+lists everyday commands and project rules. Area READMEs cover the
+[binding generator](https://github.com/maplibre/maplibre-native-ffi/blob/main/tools/bindgen/README.md),
+[native tests](https://github.com/maplibre/maplibre-native-ffi/blob/main/tests/native/README.md),
+[graphics fixtures](https://github.com/maplibre/maplibre-native-ffi/blob/main/tests/graphics/README.md),
+and
+[examples](https://github.com/maplibre/maplibre-native-ffi/blob/main/examples/README.md).
 
 ## Set up
 
-Install the prerequisites for your host:
+Install the platform prerequisites:
 
-- **macOS** on Apple Silicon: Homebrew and Xcode 26.0.1.
-- **Linux**: nothing beyond mise. Bootstrap installs the development libraries
-  with apt on Ubuntu and dnf on Fedora. On other distributions, install the
-  packages listed in `mise.linux.toml`.
-- **Windows**: run these commands from PowerShell.
+- On macOS Apple Silicon, install Homebrew and Xcode 26.0.1. Mise bootstrap
+  installs the required Homebrew packages. The macOS, iOS, tvOS, and Mac
+  Catalyst presets compile on that host.
+- On Linux, mise bootstrap installs the development libraries through apt on
+  Ubuntu and dnf on Fedora. On other distributions, install the packages that
+  `mise.linux.toml` lists. The Linux presets compile with `zig cc`, which mise
+  installs, and target glibc 2.17; see `cmake/toolchains/zig-linux.cmake`.
 
-  ```powershell
-  winget install --exact --id Git.Git
-  winget install --exact --id KhronosGroup.VulkanSDK
-  winget install --exact --id LLVM.LLVM
-  winget install --exact --id Microsoft.VisualStudio.2022.BuildTools --override "--passive --wait --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended --add Microsoft.VisualStudio.Component.VC.Tools.ARM64"
-  ```
+On Windows, run these commands from PowerShell:
 
-  Project tasks run in Git Bash.
+```powershell
+winget install --exact --id Git.Git
+winget install --exact --id KhronosGroup.VulkanSDK
+winget install --exact --id LLVM.LLVM
+winget install --exact --id Microsoft.VisualStudio.2022.BuildTools --override "--passive --wait --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended --add Microsoft.VisualStudio.Component.VC.Tools.ARM64"
+```
 
-Install [mise](https://mise.jdx.dev/), then bootstrap the repository. Bootstrap
-installs system packages, the shared toolchain, and Git hooks:
+The Visual Studio command installs the Desktop development with C++ workload,
+the recommended x64 tools and Windows SDK, and the ARM64 build tools. Project
+tasks run in Git Bash.
+
+Install [`mise`](https://mise.jdx.dev/), then install system packages, the
+shared toolchain, and the Git hooks:
 
 ```bash
 mise trust
 mise bootstrap --yes
 ```
 
-On Windows, add `--skip files` to the bootstrap command.
+On Windows, skip the Unix-only managed-files phase:
 
-Check the setup with the headless readback example:
-
-```bash
-mise run //examples/zig-readback:run
+```powershell
+mise bootstrap --yes --skip files
 ```
 
-## Common tasks
+Each binding, example, and the docs site declare their own tools, which mise
+installs the first time one of their tasks runs.
+
+`mise run build` builds the host's default preset: Metal on macOS, Vulkan on
+Linux and Windows. Pass a preset from `CMakePresets.json` to build another
+target or backend. The build installs a prefix into `build/<preset>/install`,
+and `mise run package-native <preset>` archives it:
 
 ```bash
-mise run build                       # Build the native library for the host
-mise run build linux-gnu-x64-egl     # Build another target or render backend
-mise run test                        # Build and run the C API tests
-mise run //bindings/rust:test        # Run one binding's tests
-mise run //examples/zig-map:run      # Run an example
-mise run //docs:build                # Build this documentation site
-mise run fix                         # Format and lint every file
-mise tasks --all                     # List every task
+mise run build linux-gnu-x64-egl
+mise run package-native linux-gnu-x64-egl
 ```
 
-The host build uses Metal on macOS and Vulkan on Linux and Windows.
-`CMakePresets.json` defines every target and render backend. Bindings, examples,
-and the docs declare their own tools, and mise installs them the first time one
-of their tasks runs.
+## Cross-compilation SDKs
 
-## Targets that need an SDK
-
-Android, Emscripten, and OpenHarmony builds need a cross-compilation SDK of
-several gigabytes, so mise installs one only on request. Point the build at an
-SDK you already have:
+The Android, Emscripten, and OpenHarmony targets each build against an SDK of
+several gigabytes, so mise installs one only on request. A build reads the SDK
+path from the environment:
 
 | Target         | Environment variable |
 | -------------- | -------------------- |
@@ -79,46 +80,61 @@ SDK you already have:
 | `emscripten-*` | `EMSDK`              |
 | `ohos-*`       | `OHOS_SDK_NATIVE`    |
 
-Or let mise install the pinned SDK, and pass the same `-E` to every command that
-builds for that target:
+To use the pinned SDK instead, install it under the mise configuration
+environment that is named after its presets:
 
 ```bash
 mise -E android install
-mise -E android run build android-arm64-vulkan
+mise -E emscripten install
+mise -E ohos install
 ```
 
-Set `MISE_ENV=android,ohos` to select environments for a whole shell.
+Each environment selects a `mise.<name>.toml` at the repository root. Pass the
+same `-E` to every later command that builds for the target, or set it for a
+whole shell:
 
-The x64 Android and OpenHarmony tests run in an emulator that boots on demand
-and keeps running until you stop it:
+```bash
+export MISE_ENV=android,ohos
+```
+
+Android native builds install the pinned NDK into the selected SDK when it is
+missing. To prepare the SDK before you run Gradle or CMake directly, run
+`mise run android-sdk-packages`. Pass `--ndk-only` for native compilation alone,
+or `--sdk-root <path>` to provision a specific SDK. The package versions are
+variables in `mise.toml`, and a Git-ignored `mise.local.toml` overrides them.
+After an NDK change, run `mise run clean <preset>` for each Android preset that
+you built, because CMake caches the compiler path.
+
+`mise run test` boots an Android or OpenHarmony emulator on demand, and the
+emulator keeps running until you stop it:
 
 ```bash
 mise run test android-x64-egl
 mise run //:android-emulator:stop
 ```
 
-Emulators need KVM on Linux. Without it, a boot takes an hour or more.
+The Android emulator takes the first free console port from 5554 and runs beside
+emulators that other checkouts or projects started. The stop task stops only the
+emulator that this checkout booted. To run the Android tasks on another device,
+set `ANDROID_SERIAL` to its adb serial.
 
-To prepare the Android SDK before running Gradle or CMake directly, run
-`mise run android-sdk-packages`. After changing the pinned NDK version, run
-`mise run clean <preset>` for each Android preset that you built before, because
-CMake caches the compiler path.
+Both emulators use KVM on Linux when the user can read and write `/dev/kvm`, and
+boot in a few minutes. On every other host the guest runs in software, and a
+boot takes an hour or more.
 
-## Where things live
+## Compiler cache
 
-| Concern                                  | Owner                                                 |
-| ---------------------------------------- | ----------------------------------------------------- |
-| Tools, system packages, tasks, Git hooks | mise: `mise.toml` and each project's `mise.toml`      |
-| Native targets and render backends       | CMake presets: `CMakePresets.json`                    |
-| Android and Kotlin packages              | Gradle                                                |
-| Language dependencies                    | Each ecosystem's package manager, such as uv or Cargo |
-| Formatting and lint                      | hk (`hk.pkl`) and dprint                              |
-| Compiler cache                           | sccache with a shared read-only cache                 |
-| CI workflows                             | `ci/`, generated into `.github/workflows/`            |
+Native builds use [`sccache`](https://github.com/mozilla/sccache), which
+`mise.toml` sets as the CMake compiler launcher.
 
-Edit the CI configuration in `ci/`, then run `mise run ci:generate-workflow` to
-regenerate the workflows. Hygiene fails when the checked-in workflows are out of
-date.
+Locally, every checkout of the repository shares one disk cache.
+`mise run build` lists each Git worktree in `SCCACHE_BASEDIRS`, so a new
+worktree reuses what its siblings compiled. The build turns off sccache's
+preprocessor cache mode, because its hits restore depfiles that name another
+worktree's headers, and Ninja then misses header edits in the current one.
+
+CI uses an R2 backend that `.github/actions/setup-ci-deps` configures. Push runs
+write to it, and pull request runs read it through the public endpoint.
 
 ## CI coverage
 
@@ -128,6 +144,14 @@ The plan job's summary links to the Rubberstamp dashboard with the reason for
 each unit. Hygiene always runs, and pushes to `main` and manual runs run every
 unit. If the plan looks wrong, trigger a manual run
 (`gh workflow run CI --ref <branch>`).
+
+Each target job runs every suite even after one fails, and a final step fails
+the job. CI retries a failed run once when every failed job failed in an
+infrastructure step that `ci/retry.py` lists.
+
+`ci/snapshots.toml` declares the inputs of each component that the daily
+snapshot workflow publishes, and `mise run ci:check-snapshot-scopes` keeps every
+tracked path classified.
 
 ### Debug on a CI runner
 
@@ -156,9 +180,30 @@ Run `blacksmith testbox run` from the repository root: rsync mirrors the current
 directory with `--delete`, which removes remote files absent from that
 directory.
 
-## Tests and examples
+## Code coverage
 
-Give every feature automated coverage where practical. `mise run test` runs the
-C API suite, and each binding has its own test task. Use an example for behavior
-that needs a person to check it, such as visual output, input, or host graphics
-integration. Keep examples small.
+Code coverage is a local tool for deciding which suite a test belongs in. CI
+runs no coverage build and enforces no coverage percentage.
+
+`mise run coverage [suite]` builds the `macos-arm64-metal-coverage` preset, runs
+one suite against it, and writes `build/coverage/<suite>/lcov.info` and
+`build/coverage/<suite>/html/index.html`. The suite is `native` for the C tests,
+which is the default, or a binding name such as `rust`. The preset instruments
+`src/` alone with clang source-based coverage. It builds on macOS only, and uses
+the LLVM tools that ship with Xcode. Each run executes the suite again, past
+Go's test cache and Gradle's up-to-date checks.
+
+Before you delete a binding test, compare that binding's report with the C
+suite's report:
+
+```bash
+mise run coverage native
+mise run coverage rust
+mise run coverage-diff --only-in rust --not-in native
+```
+
+`coverage-diff` lists the `src/` lines that the first report runs and the second
+misses, grouped by file and function, and exits with status 1 when it lists any
+line. Each listed line needs a C test, or a reason that the C suite cannot reach
+it on that preset. Coverage records which lines ran and nothing about what a
+test asserted, so check that a C test asserts what the binding test checked.

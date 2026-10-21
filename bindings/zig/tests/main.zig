@@ -1,37 +1,31 @@
-const testing = @import("std").testing;
-
 const maplibre = @import("maplibre_native_ffi");
 
+// Analyzing every non-generic generated function checks that the whole
+// generated surface compiles against the C headers, including the functions no
+// test calls.
 comptime {
+    @setEvalBranchQuota(100000);
+    for (@typeInfo(maplibre.generated).@"struct".decl_names) |decl| {
+        const value = @field(maplibre.generated, decl);
+        if (@typeInfo(@TypeOf(value)) == .@"fn" and !@typeInfo(@TypeOf(value)).@"fn".is_generic) _ = &value;
+    }
+    for (.{ maplibre.MapDiscarding, maplibre.RenderSessionDiscarding }) |View| {
+        for (@typeInfo(View).@"struct".decl_names) |decl| {
+            const value = @field(View, decl);
+            if (@typeInfo(@TypeOf(value)) == .@"fn" and !@typeInfo(@TypeOf(value)).@"fn".is_generic) _ = &value;
+        }
+    }
+    _ = @import("generated_workflows.zig");
     _ = @import("diagnostics.zig");
-    _ = @import("runtime.zig");
-    _ = @import("map_lifecycle.zig");
-    _ = @import("camera.zig");
-    _ = @import("projection.zig");
-    _ = @import("map_tuning.zig");
-    _ = @import("style_values.zig");
-    _ = @import("geojson.zig");
-    _ = @import("style_sources.zig");
-    _ = @import("resources.zig");
-    _ = @import("logging.zig");
-    _ = @import("render.zig");
-    _ = @import("surface.zig");
+    _ = @import("lifecycle.zig");
+    _ = @import("callbacks.zig");
+    _ = @import("values.zig");
+    _ = @import("rendering.zig");
 }
 
-test "native pointer uses explicit borrowed constructor" {
-    const ptr: *anyopaque = @ptrFromInt(1);
-    const native = maplibre.NativePointer.fromPtr(ptr);
-    try testing.expectEqual(ptr, native.toPtr());
-}
-
-test "package links the native C library" {
-    try testing.expectEqual(@as(u32, 0), maplibre.cAbiVersion());
-}
-
+// The suite links the library the way the package does, through build.zig, and
+// the library it loads reports the C ABI version this binding expects.
 test "package validates the supported C ABI version" {
-    var diagnostics = maplibre.DiagnosticStore.init(testing.allocator);
-    defer diagnostics.deinit();
-
-    try maplibre.validateAbiVersion(&diagnostics);
-    try testing.expect(diagnostics.get() == null);
+    var diagnostic: maplibre.Diagnostic = .{};
+    try maplibre.validateAbiVersion(&diagnostic);
 }

@@ -11,6 +11,7 @@ mkdir -p build
 # Document the public maplibre package only; omit ./... so internal/
 # packages are not published under the docs site.
 PKG_CONFIG_PATH="$MISE_MONOREPO_ROOT/build/$usage_preset/install/share/pkgconfig${PKG_CONFIG_PATH:+:${PKG_CONFIG_PATH}}" \
+  GOCACHE="$MISE_MONOREPO_ROOT/build/$usage_preset/go-cache" \
   doc2go \
     -out build/doc2go \
     -home github.com/maplibre/maplibre-native-ffi/bindings/go \
@@ -34,27 +35,31 @@ PKG_CONFIG_PATH="$native_install_dir/share/pkgconfig${PKG_CONFIG_PATH:+:${PKG_CO
 extends = "ffi:preset"
 run = '''
 source "$MISE_MONOREPO_ROOT/scripts/go-native-env.sh" "$usage_preset"
+export GOCACHE="$MISE_MONOREPO_ROOT/build/$usage_preset/go-cache"
+source "$MISE_MONOREPO_ROOT/bindings/go/test-tags.sh" "$usage_preset"
 
-# A host build runs the suite; a cross build proves the package compiles and
-# links for the target.
+# A host build runs the suite; a cross build proves the package and its tests
+# compile and link for the target.
 source "$MISE_MONOREPO_ROOT/scripts/go-cross-env.sh" "$usage_preset"
 if [[ -n "$goos" ]]; then
-  exec go test -c -o /dev/null .
+  exec go test -c -tags "$go_test_tags" -o /dev/null .
 fi
 # Go's test cache cannot see the native library, so always rerun the suite.
-exec go test -count=1 ./...
+exec go test -count=1 -tags "$go_test_tags" ./...
 '''
 run_windows = '''
 source "$MISE_MONOREPO_ROOT/scripts/go-native-env.sh" "$usage_preset"
+export GOCACHE="$MISE_MONOREPO_ROOT/build/$usage_preset/go-cache"
+source "$MISE_MONOREPO_ROOT/bindings/go/test-tags.sh" "$usage_preset"
 export PATH="$(cygpath -u "$native_install_dir/bin")${PATH:+:${PATH}}"
 # Go's test cache cannot see the native library, so always rerun the suite.
-go test -count=1 ./...
+go test -count=1 -tags "$go_test_tags" ./...
 '''
 
 [tasks.test]
 extends = "ffi:preset"
-# The preset selects the runner: Android and OpenHarmony x64 presets push to an
-# emulator, and host presets run in process.
+# The preset selects the runner: Android presets and OpenHarmony x64 presets
+# push to an emulator, and host presets run in process.
 run = '''
 case "$usage_preset" in
   android-* | ohos-*)
@@ -63,14 +68,20 @@ case "$usage_preset" in
 esac
 
 source "$MISE_MONOREPO_ROOT/scripts/go-native-env.sh" "$usage_preset"
+export GOCACHE="$MISE_MONOREPO_ROOT/build/$usage_preset/go-cache"
+source "$MISE_MONOREPO_ROOT/bindings/go/test-tags.sh" "$usage_preset"
 # Go's test cache cannot see the native library, so always rerun the suite.
-go test -count=1 ./...
-go vet ./...
+go test -count=1 -tags "$go_test_tags" ./...
+go vet -tags "$go_test_tags" ./...
 '''
+# A Vulkan preset builds the render tests on Windows. A WGL preset builds none,
+# because the Go wrapper of tests/graphics has no WGL context.
 run_windows = '''
 source "$MISE_MONOREPO_ROOT/scripts/go-native-env.sh" "$usage_preset"
+export GOCACHE="$MISE_MONOREPO_ROOT/build/$usage_preset/go-cache"
+source "$MISE_MONOREPO_ROOT/bindings/go/test-tags.sh" "$usage_preset"
 export PATH="$(cygpath -u "$native_install_dir/bin")${PATH:+:${PATH}}"
 # Go's test cache cannot see the native library, so always rerun the suite.
-go test -count=1 ./...
-go vet ./...
+go test -count=1 -tags "$go_test_tags" ./...
+go vet -tags "$go_test_tags" ./...
 '''

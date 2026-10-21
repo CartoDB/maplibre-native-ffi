@@ -1,53 +1,8 @@
-use std::cell::Cell;
-use std::marker::PhantomData;
-use std::num::NonZeroU64;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex, MutexGuard};
 
-use maplibre_native_ffi_sys as sys;
+pub use maplibre_native_ffi_sys::NativeHandle;
 
-use crate::error::Result;
-
-pub type StatusDestroyFn<T> = unsafe extern "C" fn(T) -> sys::mln_status;
-pub type InfallibleDestroyFn<T> = unsafe extern "C" fn(T);
-
-/// A C handle type: a transparent newtype over the 64-bit id the C API issues.
-pub trait NativeHandle: Copy {
-    fn to_raw(self) -> u64;
-    fn from_raw(raw: u64) -> Self;
-}
-
-macro_rules! native_handle {
-    ($($handle:ty),* $(,)?) => {
-        $(
-            impl NativeHandle for $handle {
-                fn to_raw(self) -> u64 {
-                    self.0
-                }
-
-                fn from_raw(raw: u64) -> Self {
-                    Self(raw)
-                }
-            }
-        )*
-    };
-}
-
-native_handle!(
-    sys::mln_buffer,
-    sys::mln_runtime,
-    sys::mln_map,
-    sys::mln_map_projection,
-    sys::mln_render_session,
-    sys::mln_wake_source,
-    sys::mln_resource_request_handle,
-    sys::mln_geojson_source_data,
-    sys::mln_offline_region_snapshot,
-    sys::mln_offline_region_list,
-    sys::mln_style_id_list,
-    sys::mln_style_string_list,
-    sys::mln_style_layer_list,
-    sys::mln_queried_feature_list,
-);
+use crate::report::{Report, report};
 
 /// A native handle a destructor attempted to destroy and could not. The handle
 /// stays live.
@@ -59,431 +14,166 @@ pub struct NativeHandleLeak {
     pub id: u64,
 }
 
-type LeakReporter = Box<dyn Fn(NativeHandleLeak) + Send + Sync>;
-
-static LEAK_REPORTER: Mutex<Option<LeakReporter>> = Mutex::new(None);
-
-/// Installs the process-wide reporter for handles a destructor could not
-/// destroy, replacing any previous one, and returns whether one was installed.
-/// Explicit `close` reports the same failure through the normal error path.
-pub fn set_leak_reporter(reporter: Option<LeakReporter>) -> bool {
-    let mut slot = LEAK_REPORTER
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    let replaced = slot.is_some();
-    *slot = reporter;
-    replaced
-}
-
 /// Reports a handle a destructor could not destroy. Never panics: it is called
 /// from `Drop`, where unwinding would abort.
 pub fn report_leak(leak: NativeHandleLeak) {
-    let slot = LEAK_REPORTER
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    if let Some(reporter) = slot.as_ref() {
-        // The reporter is arbitrary caller code running from `Drop`; unwinding
-        // through a destructor during another unwind aborts the process.
-        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| reporter(leak)));
-    }
+    report(Report::LeakedHandle(leak));
 }
 
-/// Tracks whether a native handle is still live and centralizes close-once
-/// behavior. Public handle policy such as `!Send`, parent retention, and
-/// owner-thread checks lives above this.
+/// Shared ownership bookkeeping for a generational native id.
+///
+/// Counted owners protect copies from borrowed output that native cannot see.
+/// A release fails with INVALID_STATE during a copy, and new reads fail while
+/// that release runs. Other owners let native serialize calls and releases.
 #[derive(Debug)]
-pub struct NativeHandleState<T> {
-    id: Cell<Option<NonZeroU64>>,
+pub struct HandleState<T: NativeHandle> {
+    raw: u64,
+    _typed: std::marker::PhantomData<fn() -> T>,
     type_name: &'static str,
-    _typed_handle: PhantomData<fn() -> T>,
+    tracks_borrowed_output: bool,
+    state: Mutex<Ownership>,
 }
 
-impl<T: NativeHandle> NativeHandleState<T> {
-    /// Takes ownership of a native handle.
-    ///
-    /// # Safety
-    ///
-    /// `handle` must be a live handle of the matching native type owned by the
-    /// caller. The caller must later close the state with the matching C API
-    /// destroy function or intentionally report the handle as leaked.
-    pub unsafe fn from_handle(handle: T, type_name: &'static str) -> Result<Self> {
-        let Some(id) = NonZeroU64::new(handle.to_raw()) else {
-            return Err(crate::ptr::null_handle_error(type_name));
-        };
+#[derive(Debug, Default)]
+struct Ownership {
+    released: bool,
+    readers: usize,
+    releasing: bool,
+}
+
+fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(|p| p.into_inner())
+}
+
+impl<T: NativeHandle> HandleState<T> {
+    /// Records an owned id and whether copies need a read guard.
+    pub fn new(
+        raw: T,
+        type_name: &'static str,
+        tracks_borrowed_output: bool,
+    ) -> crate::Result<Self> {
+        if raw.to_raw() == 0 {
+            return Err(crate::Error::invalid_argument(
+                "native handle must not be zero",
+            ));
+        }
         Ok(Self {
-            id: Cell::new(Some(id)),
+            raw: raw.to_raw(),
+            _typed: std::marker::PhantomData,
             type_name,
-            _typed_handle: PhantomData,
+            tracks_borrowed_output,
+            state: Mutex::new(Ownership::default()),
         })
     }
 
-    /// The live handle, or the null handle once closed.
-    pub fn handle(&self) -> T {
-        T::from_raw(self.id.get().map_or(0, NonZeroU64::get))
+    /// Returns the id, including after ownership ends; native validates it.
+    pub fn raw(&self) -> T {
+        T::from_raw(self.raw)
     }
 
-    pub fn live_handle(&self) -> Option<T> {
-        self.id.get().map(|id| T::from_raw(id.get()))
+    /// Reports whether native accepted a release or ownership was transferred.
+    pub fn is_released(&self) -> bool {
+        lock(&self.state).released
     }
 
-    pub fn id(&self) -> Option<u64> {
-        self.id.get().map(NonZeroU64::get)
+    /// Transfers ownership without a native call.
+    pub fn hand_off(&self) {
+        lock(&self.state).released = true;
     }
 
-    pub fn mark_closed(&self) {
-        self.id.set(None);
+    /// Holds off release until borrowed output has been copied.
+    pub fn read(self: &Arc<Self>) -> crate::Result<NativeRead<T>> {
+        let mut state = lock(&self.state);
+        if state.releasing {
+            return Err(Self::in_use());
+        }
+        state.readers += 1;
+        Ok(NativeRead {
+            owner: Arc::clone(self),
+            native: self.raw(),
+        })
     }
 
-    pub fn restore_handle_for_retry(&self, handle: T) {
-        self.id.set(NonZeroU64::new(handle.to_raw()));
+    /// Fails during a borrowed-output copy; counted owners also block new reads
+    /// until the returned guard drops. Native serializes other releases.
+    pub fn reserve(self: &Arc<Self>) -> crate::Result<ReleaseReservation<T>> {
+        let mut state = lock(&self.state);
+        if state.readers != 0 || state.releasing {
+            return Err(Self::in_use());
+        }
+        state.releasing = self.tracks_borrowed_output;
+        Ok(ReleaseReservation {
+            owner: Arc::clone(self),
+            accepted: false,
+        })
     }
 
-    pub fn is_closed(&self) -> bool {
-        self.id.get().is_none()
+    /// Marks ownership released only when native accepts the consuming call.
+    pub fn close_with<R>(
+        self: &Arc<Self>,
+        close: impl FnOnce(T) -> crate::Result<R>,
+    ) -> crate::Result<R> {
+        let mut reservation = self.reserve()?;
+        let result = close(self.raw());
+        if result.is_ok() {
+            reservation.commit();
+        }
+        result
     }
 
-    pub fn type_name(&self) -> &'static str {
-        self.type_name
+    /// Transfers an unreleased handle to disposal and reports a refused disposal.
+    /// The caller schedules this closure where its host can safely call native.
+    pub fn finalizer(
+        &self,
+        dispose: impl FnOnce(T) -> crate::Result<()> + Send + 'static,
+    ) -> Option<impl FnOnce() + Send + 'static> {
+        let mut state = lock(&self.state);
+        if state.released {
+            return None;
+        }
+        state.released = true;
+        let id = self.raw;
+        let type_name = self.type_name;
+        Some(move || {
+            if dispose(T::from_raw(id)).is_err() {
+                report_leak(NativeHandleLeak { type_name, id });
+            }
+        })
     }
 
-    /// Closes the handle with a status-returning destroy function.
-    ///
-    /// The state remains live when the destroy function reports an error, which
-    /// lets callers retry an owner-thread close later.
-    ///
-    /// # Safety
-    ///
-    /// `destroy` must be the matching C API destroy function for this handle
-    /// type. It must not take ownership when it returns a non-OK status.
-    pub unsafe fn close_status(&self, destroy: StatusDestroyFn<T>) -> Result<()> {
-        let Some(handle) = self.live_handle() else {
-            return Ok(());
-        };
-
-        // SAFETY: The caller promises destroy matches this live handle's type.
-        crate::check(unsafe { destroy(handle) })?;
-        self.id.set(None);
-        Ok(())
-    }
-
-    /// Closes the handle with an infallible destroy function.
-    ///
-    /// # Safety
-    ///
-    /// `destroy` must be the matching C API destroy function for this handle
-    /// type and must release the handle exactly once.
-    pub unsafe fn close_infallible(&self, destroy: InfallibleDestroyFn<T>) {
-        let Some(handle) = self.live_handle() else {
-            return;
-        };
-
-        self.id.set(None);
-        // SAFETY: The caller promises destroy matches this live handle's type.
-        unsafe { destroy(handle) };
-    }
-
-    /// Marks the handle as intentionally leaked and returns its id for
-    /// diagnostics. This does not call the destroy function, and later close
-    /// calls become no-ops. Use it only where the caller must avoid destroying
-    /// thread-affine native state, such as a finalizer on an arbitrary thread.
-    pub fn leak_for_report(&self) -> Option<u64> {
-        let id = self.id.get()?;
-        self.id.set(None);
-        Some(id.get())
-    }
-}
-
-#[derive(Debug)]
-struct NativeGuardState<T: NativeHandle> {
-    state: NativeHandleState<T>,
-    destroy: InfallibleDestroyFn<T>,
-}
-
-impl<T: NativeHandle> NativeGuardState<T> {
-    /// Takes ownership of a native handle pointer.
-    ///
-    /// # Safety
-    ///
-    /// `ptr` must be a non-null owned live handle of the matching native type.
-    /// `destroy` must be the C API function that releases exactly that handle
-    /// type and accepts null as a no-op.
-    unsafe fn from_handle(
-        handle: T,
-        destroy: InfallibleDestroyFn<T>,
-        type_name: &'static str,
-    ) -> Result<Self> {
-        // SAFETY: The caller promises handle is an owned live handle of the
-        // matching native type; this constructor pairs it with the matching
-        // infallible destroy function.
-        let state = unsafe { NativeHandleState::from_handle(handle, type_name) }?;
-        Ok(Self { state, destroy })
-    }
-
-    fn handle(&self) -> T {
-        self.state.handle()
-    }
-
-    fn close(self) {
-        drop(self);
+    fn in_use() -> crate::Error {
+        crate::Error::new(crate::Status::InvalidState, "borrowed output is in use")
     }
 }
 
-impl<T: NativeHandle> Drop for NativeGuardState<T> {
+/// A borrowed-output copy in progress; dropping it permits release again.
+pub struct NativeRead<T: NativeHandle> {
+    owner: Arc<HandleState<T>>,
+    pub native: T,
+}
+impl<T: NativeHandle> Drop for NativeRead<T> {
     fn drop(&mut self) {
-        // SAFETY: NativeGuardState binds the owned handle to the matching
-        // infallible destroy function at construction.
-        unsafe { self.state.close_infallible(self.destroy) };
+        lock(&self.owner.state).readers -= 1;
     }
 }
 
-macro_rules! native_guard {
-    ($guard:ident, $native:ty, $destroy:path, $type_name:literal, $constructor:ident) => {
-        #[derive(Debug)]
-        pub struct $guard {
-            inner: NativeGuardState<$native>,
-        }
-
-        impl $guard {
-            pub fn handle(&self) -> $native {
-                self.inner.handle()
-            }
-
-            pub fn close(self) {
-                self.inner.close();
-            }
-        }
-
-        /// Takes ownership of a native handle.
-        ///
-        /// # Safety
-        ///
-        /// `handle` must be a live handle owned by the caller.
-        pub unsafe fn $constructor(handle: $native) -> Result<$guard> {
-            // SAFETY: The caller promises handle is an owned live handle of the
-            // matching native type; this constructor pairs it with the matching
-            // destroy function.
-            let inner = unsafe { NativeGuardState::from_handle(handle, $destroy, $type_name) }?;
-            Ok($guard { inner })
-        }
-    };
+/// A consuming call in progress, with rollback when native refuses it.
+pub struct ReleaseReservation<T: NativeHandle> {
+    owner: Arc<HandleState<T>>,
+    accepted: bool,
 }
-
-native_guard!(
-    BufferGuard,
-    sys::mln_buffer,
-    sys::mln_buffer_destroy,
-    "mln_buffer",
-    buffer
-);
-native_guard!(
-    OfflineRegionSnapshotGuard,
-    sys::mln_offline_region_snapshot,
-    sys::mln_offline_region_snapshot_destroy,
-    "mln_offline_region_snapshot",
-    offline_region_snapshot
-);
-native_guard!(
-    OfflineRegionListGuard,
-    sys::mln_offline_region_list,
-    sys::mln_offline_region_list_destroy,
-    "mln_offline_region_list",
-    offline_region_list
-);
-native_guard!(
-    StyleIdListGuard,
-    sys::mln_style_id_list,
-    sys::mln_style_id_list_destroy,
-    "mln_style_id_list",
-    style_id_list
-);
-native_guard!(
-    StyleStringListGuard,
-    sys::mln_style_string_list,
-    sys::mln_style_string_list_destroy,
-    "mln_style_string_list",
-    style_string_list
-);
-native_guard!(
-    StyleLayerListGuard,
-    sys::mln_style_layer_list,
-    sys::mln_style_layer_list_destroy,
-    "mln_style_layer_list",
-    style_layer_list
-);
-native_guard!(
-    QueriedFeatureListGuard,
-    sys::mln_queried_feature_list,
-    sys::mln_queried_feature_list_destroy,
-    "mln_queried_feature_list",
-    queried_feature_list
-);
-
-#[cfg(test)]
-mod tests {
-    use std::sync::Mutex;
-    use std::sync::atomic::{AtomicI32, AtomicUsize, Ordering};
-
-    use super::*;
-
-    /// A synthetic handle type for close-once tests. Nothing here crosses into
-    /// the C API: the destroy functions below only count calls.
-    #[repr(transparent)]
-    #[derive(Debug, Clone, Copy)]
-    struct TestHandle(u64);
-
-    impl NativeHandle for TestHandle {
-        fn to_raw(self) -> u64 {
-            self.0
-        }
-
-        fn from_raw(raw: u64) -> Self {
-            Self(raw)
-        }
+impl<T: NativeHandle> ReleaseReservation<T> {
+    pub fn handle(&self) -> T {
+        self.owner.raw()
     }
-
-    const TEST_HANDLE: TestHandle = TestHandle(0x0d00_0000_0000_002a);
-
-    static DESTROY_COUNT: AtomicUsize = AtomicUsize::new(0);
-    static STATUS_DESTROY_COUNT: AtomicUsize = AtomicUsize::new(0);
-    static DESTROY_STATUS: AtomicI32 = AtomicI32::new(sys::MLN_STATUS_OK);
-    static DESTROY_COUNT_LOCK: Mutex<()> = Mutex::new(());
-
-    unsafe extern "C" fn count_destroy(handle: TestHandle) {
-        if handle.0 != 0 {
-            DESTROY_COUNT.fetch_add(1, Ordering::SeqCst);
-        }
+    pub fn commit(&mut self) {
+        self.accepted = true;
     }
-
-    unsafe extern "C" fn count_status_destroy(handle: TestHandle) -> sys::mln_status {
-        if handle.0 != 0 {
-            STATUS_DESTROY_COUNT.fetch_add(1, Ordering::SeqCst);
-        }
-        DESTROY_STATUS.load(Ordering::SeqCst)
-    }
-
-    fn assert_send<T: Send>() {}
-
-    #[test]
-    fn native_handle_state_is_send_for_bridge_storage() {
-        assert_send::<NativeHandleState<TestHandle>>();
-    }
-
-    #[test]
-    fn native_handle_destroys_owned_pointer_on_drop() {
-        let _lock = DESTROY_COUNT_LOCK.lock().unwrap();
-        DESTROY_COUNT.store(0, Ordering::SeqCst);
-        {
-            let handle =
-                unsafe { NativeGuardState::from_handle(TEST_HANDLE, count_destroy, "test_handle") }
-                    .unwrap();
-            assert_eq!(handle.handle().0, TEST_HANDLE.0);
-        }
-
-        assert_eq!(DESTROY_COUNT.load(Ordering::SeqCst), 1);
-    }
-
-    #[test]
-    fn native_handle_close_destroys_owned_pointer_once() {
-        let _lock = DESTROY_COUNT_LOCK.lock().unwrap();
-        DESTROY_COUNT.store(0, Ordering::SeqCst);
-        let handle =
-            unsafe { NativeGuardState::from_handle(TEST_HANDLE, count_destroy, "test_handle") }
-                .unwrap();
-        handle.close();
-
-        assert_eq!(DESTROY_COUNT.load(Ordering::SeqCst), 1);
-    }
-
-    #[test]
-    // Spec coverage: BND-066.
-    fn native_handle_drop_releases_owned_pointer_after_copy_error() {
-        let _lock = DESTROY_COUNT_LOCK.lock().unwrap();
-        DESTROY_COUNT.store(0, Ordering::SeqCst);
-        let error = {
-            let handle =
-                unsafe { NativeGuardState::from_handle(TEST_HANDLE, count_destroy, "test_handle") }
-                    .unwrap();
-            assert_eq!(handle.handle().0, TEST_HANDLE.0);
-            let result: crate::Result<()> = Err(crate::Error::invalid_argument("copy failed"));
-            result
-        }
-        .unwrap_err();
-
-        assert_eq!(error.kind(), crate::error::ErrorKind::InvalidArgument);
-        assert_eq!(DESTROY_COUNT.load(Ordering::SeqCst), 1);
-    }
-
-    #[test]
-    fn native_handle_rejects_the_null_handle() {
-        let _lock = DESTROY_COUNT_LOCK.lock().unwrap();
-        let error =
-            unsafe { NativeGuardState::from_handle(TestHandle(0), count_destroy, "test_handle") }
-                .unwrap_err();
-
-        assert_eq!(error.kind(), crate::error::ErrorKind::InvalidArgument);
-    }
-
-    #[test]
-    fn native_handle_state_retries_status_destroy_after_failure() {
-        let _lock = DESTROY_COUNT_LOCK.lock().unwrap();
-        STATUS_DESTROY_COUNT.store(0, Ordering::SeqCst);
-        DESTROY_STATUS.store(sys::MLN_STATUS_INVALID_STATE, Ordering::SeqCst);
-        // SAFETY: the fake destroy below only records calls and never
-        // dereferences the handle.
-        let state = unsafe { NativeHandleState::from_handle(TEST_HANDLE, "test_handle") }.unwrap();
-
-        // SAFETY: count_status_destroy is the matching fake destroy function
-        // for this test handle and does not take ownership on failure.
-        let error = unsafe { state.close_status(count_status_destroy) }.unwrap_err();
-        assert_eq!(error.kind(), crate::error::ErrorKind::InvalidState);
-        assert_eq!(state.handle().0, TEST_HANDLE.0);
-
-        DESTROY_STATUS.store(sys::MLN_STATUS_OK, Ordering::SeqCst);
-        // SAFETY: count_status_destroy is the matching fake destroy function
-        // for this test handle and reports success on this path.
-        unsafe { state.close_status(count_status_destroy) }.unwrap();
-        // SAFETY: close after success is a no-op and the same matching fake
-        // destroy function is still used.
-        unsafe { state.close_status(count_status_destroy) }.unwrap();
-
-        assert_eq!(STATUS_DESTROY_COUNT.load(Ordering::SeqCst), 2);
-        assert!(state.is_closed());
-    }
-
-    #[test]
-    fn native_handle_state_closes_infallible_once() {
-        let _lock = DESTROY_COUNT_LOCK.lock().unwrap();
-        DESTROY_COUNT.store(0, Ordering::SeqCst);
-        // SAFETY: count_destroy only records calls and never dereferences the
-        // handle.
-        let state = unsafe { NativeHandleState::from_handle(TEST_HANDLE, "test_handle") }.unwrap();
-
-        // SAFETY: count_destroy is the matching fake destroy function for this
-        // test handle.
-        unsafe { state.close_infallible(count_destroy) };
-        // SAFETY: close after success is a no-op and the same matching fake
-        // destroy function is still used.
-        unsafe { state.close_infallible(count_destroy) };
-
-        assert_eq!(DESTROY_COUNT.load(Ordering::SeqCst), 1);
-        assert!(state.is_closed());
-    }
-
-    #[test]
-    fn native_handle_state_reports_leak_without_destroying() {
-        let _lock = DESTROY_COUNT_LOCK.lock().unwrap();
-        DESTROY_COUNT.store(0, Ordering::SeqCst);
-        // SAFETY: the test intentionally uses leak_for_report instead of a
-        // destroy function, so nothing here reaches native code.
-        let state = unsafe { NativeHandleState::from_handle(TEST_HANDLE, "test_handle") }.unwrap();
-
-        assert_eq!(state.leak_for_report(), Some(TEST_HANDLE.0));
-        assert_eq!(state.leak_for_report(), None);
-        // SAFETY: close after leak_for_report is a no-op and the same matching
-        // fake destroy function is still used.
-        unsafe { state.close_infallible(count_destroy) };
-
-        assert_eq!(DESTROY_COUNT.load(Ordering::SeqCst), 0);
-        assert!(state.is_closed());
+}
+impl<T: NativeHandle> Drop for ReleaseReservation<T> {
+    fn drop(&mut self) {
+        let mut state = lock(&self.owner.state);
+        state.released |= self.accepted;
+        state.releasing = false;
     }
 }

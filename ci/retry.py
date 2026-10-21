@@ -1,4 +1,4 @@
-"""Retry one primary CI failure and the required check once."""
+"""Retry a CI run once when only infrastructure steps failed."""
 
 from __future__ import annotations
 
@@ -6,13 +6,51 @@ import json
 import os
 import subprocess
 
+# Steps that provision the runner, fetch dependencies, or boot a device. A
+# failure here says nothing about the code under test, so a rerun is worth its
+# cost. Every other step, test suites above all, fails the run for good.
+INFRASTRUCTURE_STEPS = {
+    "Set up job",
+    "Complete job",
+    "Check out repository",
+    "Plan coverage",
+    "Set up CI dependencies",
+    "Resolve Swift packages",
+    "Boot Android emulator",
+    "Boot OpenHarmony emulator",
+    "Boot iOS simulator",
+    "Boot tvOS simulator",
+}
+
+
+def infrastructure_step(name: str) -> bool:
+    # A post step belongs to the setup action that registered it, such as a
+    # cache save or a Gradle daemon shutdown.
+    return name in INFRASTRUCTURE_STEPS or name.startswith("Post ")
+
+
+def failed_in_infrastructure(job: dict) -> bool:
+    failed = [
+        step["name"]
+        for step in job.get("steps", [])
+        if step.get("conclusion") == "failure"
+    ]
+    # A job with no failed step timed out or lost its runner. A timeout can be
+    # a hung test, so it does not count as infrastructure.
+    return bool(failed) and all(infrastructure_step(name) for name in failed)
+
 
 def retryable(jobs: list[dict]) -> bool:
     if any(job["conclusion"] not in {"success", "failure", "skipped"} for job in jobs):
         return False
-    failed = [job["name"] for job in jobs if job["conclusion"] == "failure"]
-    primary = [name for name in failed if name != "ci-required"]
-    return "ci-required" in failed and len(primary) == 1
+    failed = [job for job in jobs if job["conclusion"] == "failure"]
+    required = [job for job in failed if job["name"] == "ci-required"]
+    primary = [job for job in failed if job not in required]
+    return (
+        len(required) == 1
+        and bool(primary)
+        and all(failed_in_infrastructure(job) for job in primary)
+    )
 
 
 def retry_failed_run(run_id: str) -> None:
@@ -34,7 +72,7 @@ def retry_failed_run(run_id: str) -> None:
         )
     )
     if not retryable([job for page in pages for job in page["jobs"]]):
-        print("This run does not have exactly one primary failure.")
+        print("This run failed outside the infrastructure steps.")
         return
     subprocess.run(
         ["gh", "api", "--method", "POST", f"{path}/rerun-failed-jobs"], check=True

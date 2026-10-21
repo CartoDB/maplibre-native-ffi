@@ -45,7 +45,8 @@ auto equals_ignoring_case(std::string_view left, std::string_view right)
   });
 }
 
-// Returns the RFC 3986 scheme of a URL, or nullopt when the URL carries none.
+// RFC 3986 schemes start with a letter and continue with letters, digits,
+// '+', '-', or '.'. A colon in a path alone does not identify a scheme.
 auto url_scheme(std::string_view url) -> std::optional<std::string_view> {
   const auto separator = url.find(':');
   if (separator == std::string_view::npos || separator == 0) {
@@ -193,16 +194,9 @@ auto make_resource_transform(void* platform_context) -> mln::ResourceTransform {
       mln::Resource::Kind kind, const std::string& url,
       mln::ResourceTransform::FinishedCallback finished
     ) -> void {
-      std::string replacement_url;
-      const auto status = invoke_resource_transform(
-        platform_context, resource_kind_to_abi(kind), url.c_str(),
-        replacement_url
+      invoke_resource_transform(
+        platform_context, resource_kind_to_abi(kind), url, std::move(finished)
       );
-      if (status == MLN_STATUS_OK && !replacement_url.empty()) {
-        finished(replacement_url);
-        return;
-      }
-      finished(url);
     }
   };
 }
@@ -216,7 +210,7 @@ class AbiNetworkFileSource final : public mln::FileSource {
       : resource_options_(resource_options.clone()),
         client_options_(client_options.clone()),
         native_(
-          std::make_unique<mln::OnlineFileSource>(
+          std::make_shared<mln::OnlineFileSource>(
             resource_options, client_options
           )
         ) {
@@ -235,37 +229,52 @@ class AbiNetworkFileSource final : public mln::FileSource {
       );
       if (provider.has_value()) {
         provider_declined = true;
-        auto request = request_custom_resource(
-          resource, resolve_resource_url(options, resource),
-          provider->callback(), provider->user_data(), callback
-        );
-        if (request != nullptr) {
-          return request;
+        auto resolved_url = resolve_resource_url(options, resource);
+        // A request outside the provider's routes passes through, as one the
+        // provider declined does.
+        if (
+          provider->matches(resource_kind_to_abi(resource.kind), resolved_url)
+        ) {
+          auto request = request_custom_resource(
+            resource, std::move(resolved_url), provider->callback(),
+            provider->user_data(), callback,
+            [native = native_, resource](Callback next) {
+              return request_native(
+                native, native->getResourceOptions(), resource, true,
+                std::move(next)
+              );
+            }
+          );
+          if (request != nullptr) {
+            return request;
+          }
         }
       }
     }
-    if (!native_->canRequest(resource)) {
-      return nullptr;
-    }
-    const auto unsupported = unsupported_network_scheme(options, resource.url);
-    if (unsupported.has_value()) {
-      return respond_immediately(
-        unsupported_scheme_response(
-          *unsupported, resource.url, provider_declined
-        ),
-        std::move(callback)
-      );
-    }
-    return native_->request(resource, std::move(callback));
+    return request_native(
+      native_, options, resource, provider_declined, std::move(callback)
+    );
   }
 
   [[nodiscard]] auto canRequest(const mln::Resource& resource) const
     -> bool override {
-    const auto provider = acquire_resource_provider_for_platform_context(
-      resource_options_snapshot().platformContext()
-    );
-    return (can_request_network(resource) && provider.has_value()) ||
-           native_->canRequest(resource);
+    const auto options = resource_options_snapshot();
+    // A provider claims only the requests its routes match, as request() does,
+    // so a request outside those routes stays available to another file source.
+    if (can_request_network(resource)) {
+      const auto provider = acquire_resource_provider_for_platform_context(
+        options.platformContext()
+      );
+      if (
+        provider.has_value() && provider->matches(
+                                  resource_kind_to_abi(resource.kind),
+                                  resolve_resource_url(options, resource)
+                                )
+      ) {
+        return true;
+      }
+    }
+    return native_->canRequest(resource);
   }
 
   void forward(
@@ -311,6 +320,31 @@ class AbiNetworkFileSource final : public mln::FileSource {
   }
 
  private:
+  static auto request_native(
+    const std::shared_ptr<mln::FileSource>& native,
+    const mln::ResourceOptions& options, const mln::Resource& resource,
+    bool provider_declined, Callback callback
+  ) -> std::unique_ptr<mln::AsyncRequest> {
+    if (!native->canRequest(resource)) {
+      auto result = mln::Response{};
+      result.error = std::make_unique<mln::Response::Error>(
+        mln::Response::Error::Reason::Other,
+        "native loader cannot request this resource"
+      );
+      return respond_immediately(result, std::move(callback));
+    }
+    const auto unsupported = unsupported_network_scheme(options, resource.url);
+    if (unsupported.has_value()) {
+      return respond_immediately(
+        unsupported_scheme_response(
+          *unsupported, resource.url, provider_declined
+        ),
+        std::move(callback)
+      );
+    }
+    return native->request(resource, std::move(callback));
+  }
+
   // Snapshots the options so reads never race a replacement. The mutex guards
   // only this member and is released before any other lock is taken.
   [[nodiscard]] auto resource_options_snapshot() const -> mln::ResourceOptions {
@@ -355,7 +389,7 @@ class AbiNetworkFileSource final : public mln::FileSource {
   mutable std::mutex resource_options_mutex_;
   mln::ResourceOptions resource_options_;
   mln::ClientOptions client_options_;
-  std::unique_ptr<mln::FileSource> native_;
+  std::shared_ptr<mln::FileSource> native_;
 };
 
 }  // namespace

@@ -1,35 +1,17 @@
+import 'package:maplibre_native_ffi/src/values.dart';
 import 'dart:convert';
 import 'dart:ffi';
-import 'dart:isolate';
 
 import 'package:maplibre_native_ffi/src/error/maplibre_exception.dart';
 import 'package:maplibre_native_ffi/src/internal/c/maplibre_native_c.dart';
 import 'package:maplibre_native_ffi/src/internal/c/maplibre_native_c.g.dart'
     as raw;
-import 'package:maplibre_native_ffi/src/internal/callback/callback_state.dart';
-import 'package:maplibre_native_ffi/src/internal/lifecycle/lifecycle.dart';
-import 'package:maplibre_native_ffi/src/internal/lifecycle/frame_construction.dart';
 import 'package:maplibre_native_ffi/src/internal/memory/memory.dart';
 import 'package:maplibre_native_ffi/src/internal/status/status.dart';
-import 'package:maplibre_native_ffi/src/runtime/runtime.dart';
+
+import 'support/runtime_probes.dart';
 import 'package:ffi/ffi.dart';
 import 'package:test/test.dart';
-import 'package:maplibre_native_ffi/src/internal/lifecycle/native_handles.dart';
-
-/// A handle of a distinct kind for tests that exercise binding-owned
-/// bookkeeping without a live native object.
-extension type const _FakeNativeHandle(int raw) implements NativeHandle {}
-
-const _fakeHandle = _FakeNativeHandle(0x0200000000001234);
-
-final class _FakeCallbackState extends RetainedCallbackState {
-  var closes = 0;
-
-  @override
-  void closeResources() {
-    closes += 1;
-  }
-}
 
 void main() {
   group('status conversion', () {
@@ -38,38 +20,22 @@ void main() {
         () => validateCAbiVersion(expectedCAbiVersion + 1),
         throwsA(
           isA<AbiVersionMismatchException>()
+              .having((error) => error.status, 'status', Status.unsupported)
               .having(
-                (error) => error.status,
-                'status',
-                MaplibreStatus.abiVersionMismatch,
-              )
-              .having(
-                (error) => error.diagnostic,
-                'diagnostic',
-                contains('expected $expectedCAbiVersion'),
+                (error) => error.expected,
+                'expected version',
+                expectedCAbiVersion,
               ),
         ),
       );
     });
 
-    test('ok status returns without reading diagnostics', () {
-      var diagnosticReads = 0;
-
-      checkNativeStatus(nativeStatusOk, () {
-        diagnosticReads += 1;
-        return 'unused';
-      });
-
-      expect(diagnosticReads, 0);
-    });
-
-    test('native failures map every known status category', () {
-      final cases = <(int, Type)>[
-        (nativeStatusInvalidArgument, InvalidArgumentException),
-        (nativeStatusInvalidState, InvalidStateException),
-        (nativeStatusWrongThread, WrongThreadException),
-        (nativeStatusUnsupported, UnsupportedFeatureException),
-        (nativeStatusNativeError, NativeErrorException),
+    test('native statuses map to their exceptions and keep unknown codes', () {
+      final cases = <(int, Status)>[
+        (nativeStatusInvalidArgument, Status.invalidArgument),
+        (nativeStatusInvalidState, Status.invalidState),
+        (nativeStatusUnsupported, Status.unsupported),
+        (nativeStatusNativeError, Status.nativeError),
       ];
 
       for (final (status, type) in cases) {
@@ -77,14 +43,12 @@ void main() {
           checkNativeStatus(status, () => 'diagnostic $status');
           fail('status $status unexpectedly succeeded');
         } on MaplibreException catch (error) {
-          expect(error.runtimeType, type);
-          expect(error.nativeStatusCode, status);
+          expect(error.status, type);
+          expect(error.status.rawValue, status);
           expect(error.diagnostic, 'diagnostic $status');
         }
       }
-    });
 
-    test('unknown native status and copied diagnostic remain available', () {
       var nativeDiagnostic = 'first diagnostic';
       late MaplibreException error;
 
@@ -96,242 +60,85 @@ void main() {
       }
       nativeDiagnostic = 'later diagnostic';
 
-      expect(error, isA<UnknownMaplibreException>());
-      expect(error.status.name, 'unknown');
-      expect(error.nativeStatusCode, -999);
+      expect(error.status, const Status.fromRawValue(-999));
+      expect(error.toString(), contains('Status(-999)'));
       expect(error.diagnostic, 'first diagnostic');
     });
+  });
 
-    test('binding validation produces a fresh binding diagnostic', () {
+  test('an empty string view still points at storage', () {
+    withNativeArena((arena) {
+      final empty = nativeStringView('', arena).value;
+      expect(empty.size, 0);
+      expect(empty.data, isNot(nullptr));
+    });
+  });
+
+  // A native build whose element grew reports a value_size wider than this
+  // binding's element, so the reader steps by it. A stride narrower than the
+  // element cannot hold one.
+  test('an array completion is read at its value_size', () {
+    // Two coordinates, each followed by a member this binding does not know.
+    final stride = sizeOf<raw.mln_lat_lng>() + 8;
+    final points = calloc<Uint8>(2 * stride);
+    final result = calloc<raw.mln_completion_result>();
+    try {
+      for (final (index, (latitude, longitude)) in [
+        (1.0, 2.0),
+        (3.0, 4.0),
+      ].indexed) {
+        final point = (points + index * stride).cast<raw.mln_lat_lng>().ref;
+        point.latitude = latitude;
+        point.longitude = longitude;
+      }
+      result.ref.size = sizeOf<raw.mln_completion_result>();
+      result.ref.status = nativeStatusOk;
+      result.ref.value = points.cast();
+      result.ref.value_count = 2;
+      result.ref.value_size = stride;
+
+      expect(decodeLatLngListForTesting(result.ref), const [
+        LatLng(latitude: 1, longitude: 2),
+        LatLng(latitude: 3, longitude: 4),
+      ]);
+      result.ref.value_size = sizeOf<raw.mln_lat_lng>() - 1;
       expect(
-        () => throwInvalidArgument('fresh binding diagnostic'),
+        () => decodeLatLngListForTesting(result.ref),
         throwsA(
-          isA<InvalidArgumentException>()
-              .having(
-                (error) => error.nativeStatusCode,
-                'nativeStatusCode',
-                isNull,
-              )
-              .having(
-                (error) => error.diagnostic,
-                'diagnostic',
-                'fresh binding diagnostic',
-              ),
-        ),
-      );
-    });
-  });
-
-  group('native string helpers', () {
-    test('null-terminated strings reject embedded NUL', () {
-      expect(
-        () => withNativeArena((arena) => nativeUtf8CString('a\u0000b', arena)),
-        throwsA(isA<InvalidArgumentException>()),
-      );
-    });
-
-    test('null-terminated strings expose UTF-8 bytes and trailing NUL', () {
-      withNativeArena((arena) {
-        final value = nativeUtf8CString('café', arena);
-        final bytes = value.pointer.cast<Uint8>();
-
-        expect(value.byteLength, 5);
-        expect(bytes[0], 'c'.codeUnitAt(0));
-        expect(bytes[3], 0xc3);
-        expect(bytes[4], 0xa9);
-        expect(bytes[5], 0);
-      });
-    });
-
-    test('string views preserve explicit byte length and embedded NUL', () {
-      withNativeArena((arena) {
-        final value = nativeStringView('a\u0000b', arena);
-
-        expect(value.byteLength, 3);
-        expect(value.value.size, 3);
-        expect(value.value.data.cast<Uint8>()[1], 0);
-      });
-    });
-  });
-
-  group('callback state', () {
-    test('retired callback state waits until queued turn to close', () async {
-      final state = _FakeCallbackState();
-
-      state.close();
-      expect(state.closes, 0);
-      expect(state.runUpcall(() {}), isFalse);
-
-      await Future<void>.delayed(Duration.zero);
-      expect(state.closes, 1);
-    });
-
-    test('retired callback state waits for active upcalls', () async {
-      final state = _FakeCallbackState();
-      expect(
-        state.runUpcall(() {
-          state.close();
-          expect(state.closes, 0);
-        }),
-        isTrue,
-      );
-
-      expect(state.closes, 0);
-      await Future<void>.delayed(Duration.zero);
-      expect(state.closes, 1);
-      expect(state.runUpcall(() {}), isFalse);
-    });
-  });
-
-  group('native handle state', () {
-    test('close succeeds once and later closes are no-ops', () {
-      final state = NativeHandleState<_FakeNativeHandle>(
-        _fakeHandle,
-        'fake_handle',
-      );
-      var closes = 0;
-
-      state.close((_) {
-        closes += 1;
-        return nativeStatusOk;
-      }, () => 'unused');
-      state.close((_) {
-        closes += 1;
-        return nativeStatusOk;
-      }, () => 'unused');
-
-      expect(closes, 1);
-      expect(state.isClosed, isTrue);
-    });
-
-    test('owner isolate mismatch rejects use before native calls', () {
-      final state = NativeHandleState<_FakeNativeHandle>(
-        _fakeHandle,
-        'fake_handle',
-        ownerIsolateHash: Isolate.current.hashCode + 1,
-        leakReporting: false,
-      );
-
-      expect(() => state.handle, throwsA(isA<WrongThreadException>()));
-      expect(
-        () => state.close((_) => nativeStatusOk, () => 'unused'),
-        throwsA(isA<WrongThreadException>()),
-      );
-    });
-
-    test('owner native thread mismatch reports the isolate moved', () {
-      // The isolate check still passes when the VM moves an isolate off its
-      // original native thread, so the thread check has to catch it.
-      final state = NativeHandleState<_FakeNativeHandle>(
-        _fakeHandle,
-        'fake_handle',
-        ownerThreadToken: -1,
-        leakReporting: false,
-      );
-
-      expect(
-        () => state.handle,
-        throwsA(
-          isA<WrongThreadException>().having(
-            (error) => error.diagnostic,
-            'diagnostic',
-            allOf(
-              contains('native thread its isolate has since left'),
-              contains('awaited I/O'),
-            ),
+          isA<MaplibreException>().having(
+            (error) => error.status,
+            'status',
+            Status.invalidState,
           ),
         ),
       );
-      expect(
-        () => state.close((_) => nativeStatusOk, () => 'unused'),
-        throwsA(isA<WrongThreadException>()),
-      );
-    });
-
-    test('failed close leaves handle live for retry', () {
-      final state = NativeHandleState<_FakeNativeHandle>(
-        _fakeHandle,
-        'fake_handle',
-      );
-
-      expect(
-        () => state.close((_) => nativeStatusInvalidState, () => 'busy'),
-        throwsA(isA<InvalidStateException>()),
-      );
-
-      expect(state.isClosed, isFalse);
-      state.close((_) => nativeStatusOk, () => 'unused');
-      expect(state.isClosed, isTrue);
-    });
-  });
-
-  group('owned frame construction cleanup', () {
-    test('successful cleanup releases descriptor ownership', () {
-      var released = 0;
-      var retained = 0;
-
-      cleanupFailedFrameConstruction(
-        release: () => nativeStatusOk,
-        releaseSucceeded: () => released += 1,
-        releaseFailed: () => retained += 1,
-      );
-
-      expect(released, 1);
-      expect(retained, 0);
-    });
-
-    test('failed cleanup preserves descriptor for owner-thread retry', () {
-      var released = 0;
-      var retained = 0;
-
-      cleanupFailedFrameConstruction(
-        release: () => nativeStatusInvalidState,
-        releaseSucceeded: () => released += 1,
-        releaseFailed: () => retained += 1,
-      );
-
-      expect(released, 0);
-      expect(retained, 1);
-    });
+    } finally {
+      calloc.free(result);
+      calloc.free(points);
+    }
   });
 
   test('a drained batch is indexed by its stride and copied field by field', () {
-    final runtime = RuntimeHandle.create();
-    // A stride wider than this binding's own record is what a C API version
-    // that added a payload member reports, so the decoder indexes by it.
     final eventSize = sizeOf<raw.mln_runtime_event>() + 8;
     final payloadOffset =
         sizeOf<raw.mln_runtime_event>() -
         sizeOf<raw.mln_runtime_event_payload>();
-    final events = calloc<Uint8>(eventSize * 3);
-    final messageBytes = utf8.encode('copied message tile-source ');
+    final events = calloc<Uint8>(eventSize * 2);
+    final messageBytes = utf8.encode('copied message\u0000');
     final messages = calloc<Uint8>(messageBytes.length);
-    final batch = calloc<raw.mln_runtime_event_batch>();
+    final batch = calloc<raw.mln_event_batch_view>();
     try {
-      // The library this binding runs against reports the record size this
-      // binding compiled, so a later mismatch is an ABI change rather than a
-      // decode bug.
-      batch.ref = raw.mln_runtime_event_batch_default();
-      expect(
-        raw.mln_runtime_drain_events(
-          runtimeHandleIdForTesting(runtime),
-          0,
-          batch,
-        ),
-        nativeStatusOk,
-      );
-      expect(batch.ref.event_size, sizeOf<raw.mln_runtime_event>());
-
       messages.asTypedList(messageBytes.length).setAll(0, messageBytes);
 
       final unknown = (events + 0).cast<raw.mln_runtime_event>().ref;
       unknown.type = 0xfeed;
       unknown.source_type = 0xbeef;
       unknown.source = 0xcafe;
+      unknown.generation = 0x100000005;
       unknown.code = 17;
       unknown.payload_type = 0xf00d;
-      unknown.message_offset = 0;
-      unknown.message_size = 14;
+      unknown.message.data = messages.cast();
+      unknown.message.size = 14;
       final unknownWindow = (events + payloadOffset).asTypedList(
         eventSize - payloadOffset,
       );
@@ -350,80 +157,48 @@ void main() {
       renderMap.payload_type = 2;
       renderMap.payload.render_map.mode = 1;
 
-      final transition = (events + 2 * eventSize)
-          .cast<raw.mln_runtime_event>()
-          .ref;
-      transition.type = 23;
-      transition.source_type = 0;
-      transition.code = 0;
-      transition.payload_type = 9;
-      transition.payload.camera_transition_finished.transition_id = -1;
-      transition.message_offset = 15;
-      transition.message_size = 11;
-
-      batch.ref.size = sizeOf<raw.mln_runtime_event_batch>();
+      batch.ref.size = sizeOf<raw.mln_event_batch_view>();
       batch.ref.event_size = eventSize;
       batch.ref.events = events.cast<raw.mln_runtime_event>();
-      batch.ref.event_count = 3;
-      batch.ref.messages = messages.cast<Char>();
-      batch.ref.messages_size = messageBytes.length;
-      batch.ref.remaining_count = 7;
-
-      final decoded = decodeRuntimeEventBatchForTesting(batch.ref, runtime);
+      batch.ref.event_count = 2;
+      final decoded = decodeRuntimeEventBatchForTesting(batch.ref);
       // Every field is copied before the drain returns, so overwriting the
       // arena cannot change what the host already holds.
       unknownWindow.fillRange(0, unknownWindow.length, 9);
       messages[0] = 'X'.codeUnitAt(0);
 
-      expect(decoded.remainingCount, 7);
-      expect(decoded.events, hasLength(3));
+      expect(decoded, hasLength(2));
 
-      final unknownEvent = decoded.events[0];
-      expect(unknownEvent.eventType.rawValue, 0xfeed);
+      final unknownEvent = decoded[0];
+      expect(unknownEvent.type.rawValue, 0xfeed);
       expect(unknownEvent.code, 17);
-      final unknownSource = unknownEvent.source as UnknownRuntimeEventSource;
-      expect(unknownSource.sourceType.rawValue, 0xbeef);
-      expect(unknownSource.sourceId, 0xcafe);
+      expect(unknownEvent.sourceType.rawValue, 0xbeef);
+      expect(unknownEvent.source, BigInt.from(0xcafe));
+      expect(unknownEvent.generation, BigInt.from(0x100000005));
       expect(unknownEvent.message, 'copied message');
       final unknownPayload = unknownEvent.payload;
       expect(unknownPayload, isA<RuntimeEventPayloadUnknown>());
-      expect(unknownPayload.rawPayloadType, 0xf00d);
+      expect((unknownPayload as RuntimeEventPayloadUnknown).tag, 0xf00d);
       expect(
-        (unknownPayload as RuntimeEventPayloadUnknown).bytes,
+        (unknownPayload).rawRecord.sublist(payloadOffset),
         List.generate(eventSize - payloadOffset, (index) => index + 1),
       );
 
-      // The second and third events decode only when the walk steps by the
+      // The second event decodes only when the walk steps by the
       // reported stride rather than by this binding's own record size.
-      final renderMapEvent = decoded.events[1];
-      expect(renderMapEvent.eventType, RuntimeEventType.mapRenderMapFinished);
-      final renderMapSource = renderMapEvent.source as MapRuntimeEventSource;
-      expect(renderMapSource.map, isNull);
-      expect(renderMapSource.sourceId, 0xfeed);
-      // A zero message size is the absent message, not the empty one.
-      expect(renderMapEvent.message, isNull);
+      final renderMapEvent = decoded[1];
+      expect(renderMapEvent.type, RuntimeEventType.mapRenderMapFinished);
+      expect(renderMapEvent.sourceType, RuntimeEventSourceType.map);
+      expect(renderMapEvent.source, BigInt.from(0xfeed));
+      expect(renderMapEvent.message, isEmpty);
       expect(
-        (renderMapEvent.payload as RuntimeEventRenderMap).mode,
+        (renderMapEvent.payload as RuntimeEventPayloadRenderMap).value.mode,
         RenderMode.full,
-      );
-
-      final transitionEvent = decoded.events[2];
-      expect(
-        transitionEvent.eventType,
-        RuntimeEventType.mapCameraTransitionFinished,
-      );
-      expect(transitionEvent.source, isA<RuntimeRuntimeEventSource>());
-      expect(transitionEvent.message, 'tile-source');
-      expect(
-        (transitionEvent.payload as RuntimeEventCameraTransitionFinished)
-            .transitionId,
-        (BigInt.one << 64) - BigInt.one,
       );
     } finally {
       calloc.free(batch);
       calloc.free(messages);
       calloc.free(events);
-      runtime.close();
     }
   });
 }

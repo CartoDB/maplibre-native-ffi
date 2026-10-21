@@ -34,6 +34,17 @@ RETENTION = "${{ github.event_name == 'pull_request' && 1 || 30 }}"
 OPEN = "github.event.pull_request.state != 'closed'"
 
 KOTLIN_SNAPSHOT_VERSION = "0.1.0-SNAPSHOT"
+# A pull request stages at a version of its own, so a consumer of its verified
+# repository never resolves a stale snapshot from another source. The run id is
+# the one `gh run download` takes. Other runs keep the snapshot version, which
+# snapshot publication reuses.
+KOTLIN_CI_VERSION = (
+    "${{ github.event_name == 'pull_request' && "
+    f"format('{KOTLIN_SNAPSHOT_VERSION.removesuffix('-SNAPSHOT')}-pr{{0}}.{{1}}', "
+    "github.event.pull_request.number, github.run_id) || "
+    f"'{KOTLIN_SNAPSHOT_VERSION}' }}}}"
+)
+KOTLIN_VERIFIED_RETENTION = "${{ github.event_name == 'pull_request' && 7 || 30 }}"
 
 
 def action(reference: str, inputs: dict | None = None, **fields) -> dict:
@@ -52,7 +63,9 @@ def checkout(runs_on: str, **inputs) -> dict:
         if runs_on.startswith("blacksmith-")
         else "actions/checkout"
     )
-    return action(name, {"persist-credentials": False, **inputs})
+    return action(
+        name, {"persist-credentials": False, **inputs}, name="Check out repository"
+    )
 
 
 def run(command: str, **fields) -> dict:
@@ -86,7 +99,12 @@ def setup(
     checkout_inputs = {"fetch-tags": True} if fetch_tags else {}
     return [
         checkout(runs_on, **checkout_inputs),
-        {"uses": "./.github/actions/setup-ci-deps", "id": "setup", "with": inputs},
+        {
+            "name": "Set up CI dependencies",
+            "uses": "./.github/actions/setup-ci-deps",
+            "id": "setup",
+            "with": inputs,
+        },
     ]
 
 
@@ -99,24 +117,58 @@ def target_job(row: dict) -> dict:
         gradle=row["gradle"],
         save_toolchains=row["save_toolchains"],
     )
-    steps.extend(run(command) for command in row["native_commands"])
-    if row["package"]:
-        steps.extend(
-            [
-                run(
-                    f"mise run archive-native {preset}", name="Archive native artifact"
-                ),
-                run(
-                    f"mise run install-native-package {preset} "
-                    f"build/packages/native/dist/maplibre-native-c-{preset}.tar.gz",
-                    name="Install packaged native artifact",
-                ),
-                *[
-                    run(command, env={"MISE_TASK_SKIP": "//:build"})
-                    for command in row["consumer_commands"]
-                ],
-            ]
+    # Steps that fetch dependencies or boot a device carry the names that
+    # ci/retry.py treats as infrastructure.
+    if row["swift"]:
+        steps.append(
+            run(
+                "mise run //bindings/swift:resolve",
+                name="Resolve Swift packages",
+                id="resolve",
+            )
         )
+    build, *checks = row["native_commands"]
+    steps.append(run(build, id="build"))
+    prerequisites = ["build"]
+    if row["boot"]:
+        name, command = row["boot"]
+        steps.append(run(command, name=name, id="boot"))
+        prerequisites.append("boot")
+    suites: list[str] = []
+
+    def guard() -> str:
+        # A suite runs even after an earlier suite failed, so one run reports
+        # every failed suite, but only when its build and device succeeded.
+        # Each prerequisite runs only after the ones before it succeeded, so
+        # the last one stands for them all.
+        return (
+            f"${{{{ !cancelled() && steps.{prerequisites[-1]}.outcome == 'success' }}}}"
+        )
+
+    def add_suite(command: str, env: dict[str, str] | None = None) -> None:
+        suites.append(f"suite-{len(suites) + 1}")
+        env = {**(env or {}), **row["environment"].get(command, {})}
+        fields = {"env": env} if env else {}
+        steps.append(run(command, id=suites[-1], **{"if": guard()}, **fields))
+
+    for command in checks:
+        add_suite(command)
+    if row["package"]:
+        for step_id, name, command in (
+            ("archive", "Archive native artifact", f"mise run archive-native {preset}"),
+            (
+                "install",
+                "Install packaged native artifact",
+                (
+                    f"mise run install-native-package {preset} "
+                    f"build/packages/native/dist/maplibre-native-c-{preset}.tar.gz"
+                ),
+            ),
+        ):
+            steps.append(run(command, name=name, id=step_id, **{"if": guard()}))
+            prerequisites.append(step_id)
+        for command in row["consumer_commands"]:
+            add_suite(command, {"MISE_TASK_SKIP": "//:build"})
     # A failed job must not claim the immutable shared Zig cache with a partial
     # set of packages. Only rows covering every Zig project can save it.
     if row["zig"]:
@@ -146,6 +198,23 @@ def target_job(row: dict) -> dict:
                 name="Upload native artifact",
             )
         )
+    if suites:
+        # A failed suite already fails the job. This step collects the verdict
+        # at the end of the log, after the suites that kept running.
+        steps.append(
+            run(
+                "exit 1",
+                name="Fail if any suite failed",
+                shell="bash",
+                **{
+                    "if": "${{ !cancelled() && ("
+                    + " || ".join(
+                        f"steps.{suite}.outcome == 'failure'" for suite in suites
+                    )
+                    + ") }}"
+                },
+            )
+        )
     return {
         "name": job_name(f"target-{preset}"),
         "runs-on": row["runner"],
@@ -157,13 +226,17 @@ def target_job(row: dict) -> dict:
 
 def hygiene_job() -> dict:
     commands = [
-        "mise run ci:generate-workflow --check",
-        "mise run ci:test",
-        "mise run --force //bindings/dart:ffigen",
-        "mise run --force //bindings/dotnet:generate",
-        "mise run --force //bindings/kotlin:generate",
-        "dprint output-resolved-config > /dev/null",
-        "mise run fix",
+        run("mise run ci:generate-workflow --check"),
+        run("mise run ci:test"),
+        # A generator probe whose toolchain is missing fails here instead of
+        # skipping.
+        run(
+            "mise run bindings:test-generator",
+            env={"MLN_BINDGEN_REQUIRE_TOOLCHAINS": "1"},
+        ),
+        run("mise run bindings:check"),
+        run("dprint output-resolved-config > /dev/null"),
+        run("mise run fix"),
     ]
     return {
         "name": job_name(HYGIENE),
@@ -172,7 +245,7 @@ def hygiene_job() -> dict:
         "environment": SCCACHE_ENVIRONMENT,
         "steps": [
             *setup(LINUX_RUNNER, gradle=False),
-            *[run(command) for command in commands],
+            *commands,
             run(
                 "git update-index -q --refresh\n"
                 "git diff --exit-code -- . ':(exclude)mise*.lock'\n"
@@ -277,8 +350,8 @@ def kotlin_maven_job(needs: list[str]) -> dict:
             "publish": False,
             "run_id": "${{ github.run_id }}",
             "sha": "${{ github.sha }}",
-            "verified_retention_days": RETENTION,
-            "version": KOTLIN_SNAPSHOT_VERSION,
+            "verified_retention_days": KOTLIN_VERIFIED_RETENTION,
+            "version": KOTLIN_CI_VERSION,
         },
     }
 
@@ -294,7 +367,9 @@ def plan_job() -> dict:
             "all": "${{ steps.plan.outputs.all }}",
             "units": "${{ steps.plan.outputs.units }}",
         },
-        "steps": [action("sargunv/rubberstamp/actions/plan", id="plan")],
+        "steps": [
+            action("sargunv/rubberstamp/actions/plan", name="Plan coverage", id="plan")
+        ],
     }
 
 

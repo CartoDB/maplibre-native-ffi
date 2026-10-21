@@ -1,128 +1,92 @@
-using System.Runtime.InteropServices;
 using Maplibre.NativeFfi.Error;
 using Maplibre.NativeFfi.Internal.C;
-using Maplibre.NativeFfi.Internal.Callback;
-using Maplibre.NativeFfi.Resource;
-using Maplibre.NativeFfi.Runtime;
+using Maplibre.NativeFfi.Internal.Memory;
+using Maplibre.NativeFfi.Internal.Struct;
 using Xunit;
 
 namespace Maplibre.NativeFfi.Tests;
 
 public sealed class ResourceTransformTests
 {
-    [BindingSpecTest("BND-141")]
     [Fact]
-    public void ResourceTransformCopiesRequestWhenKeepingOriginalUrl()
+    public unsafe void AScopedResponseExpiresWithItsCallbackAndRejectsOtherThreads()
     {
-        ResourceTransformRequest? copiedRequest = null;
-        using var state = new ResourceTransformState(request =>
+        HttpHeaderTransformResponse? retained = null;
+        string? copied = null;
+        Exception? crossThread = null;
+        using var scope = new NativeCallScope();
+        var native = GeneratedValues.NativeHttpHeaderTransform(
+            new HttpHeaderTransform
+            {
+                Callback = (_, url, response) =>
+                {
+                    copied = url;
+                    retained = response;
+                    var otherThread = new Thread(() =>
+                        crossThread = Record.Exception(() => response.SetHeader("X-Test", "other"))
+                    );
+                    otherThread.Start();
+                    otherThread.Join();
+                    throw new FormatException("Host callback failed.");
+                },
+            },
+            scope
+        );
+        var response = new mln_http_header_transform_response
         {
-            copiedRequest = request;
-            return null;
-        });
-
-        Assert.Equal(
-            mln_status.MLN_STATUS_OK,
-            state.TransformForTest(
-                ResourceKind.Tile,
-                "https://example.test/tile",
-                out var replacementUrl
-            )
-        );
-        Assert.Null(replacementUrl);
-        Assert.Equal(ResourceKind.Tile, copiedRequest?.Kind);
-        Assert.Equal("https://example.test/tile", copiedRequest?.Url);
-    }
-
-    [BindingSpecTest("BND-025")]
-    [Fact]
-    public void ResourceTransformEmbeddedNulReplacementMapsToInvalidArgument()
-    {
-        using var state = new ResourceTransformState(_ => "https://example.test/\0truncated");
-
-        Assert.Equal(
-            mln_status.MLN_STATUS_INVALID_ARGUMENT,
-            state.TransformForTest(
-                ResourceKind.Style,
-                "https://example.test/style.json",
-                out var replacementUrl
-            )
-        );
-        Assert.Null(replacementUrl);
-    }
-
-    [BindingSpecTest("BND-121")]
-    [Fact]
-    public void ResourceTransformExceptionMapsToNativeError()
-    {
-        using var state = new ResourceTransformState(_ =>
-            throw new InvalidOperationException("boom")
-        );
-
+            size = (uint)sizeof(mln_http_header_transform_response),
+        };
+        var url = scope.CString("transform-test://é/style.json");
         Assert.Equal(
             mln_status.MLN_STATUS_NATIVE_ERROR,
-            state.TransformForTest(
-                ResourceKind.Style,
-                "https://example.test/style.json",
-                out var replacementUrl
-            )
+            native.callback(native.user_data, 1, url, &response)
         );
-        Assert.Null(replacementUrl);
+        Assert.Equal("transform-test://é/style.json", copied);
+        Assert.IsType<MaplibreException>(crossThread);
+        Assert.NotNull(retained);
+        Assert.Throws<MaplibreException>(() => retained.SetHeader("X-Test", "late"));
     }
 
-    [BindingSpecTest("BND-123")]
     [Fact]
-    public void ResourceTransformStateDisposeIsIdempotent()
+    public async Task ATransformRequestIsAnsweredFromAnotherThreadAfterItsCallback()
     {
-        var state = new ResourceTransformState(_ => null);
-
-        state.Dispose();
-        state.Dispose();
-    }
-
-    [BindingSpecTest("BND-122")]
-    [Fact]
-    public unsafe void ResourceTransformInstallFailurePreservesPreviousCallbackAndReleasesReplacement()
-    {
-        var failInstall = false;
-        ResourceTransformState? failedReplacement = null;
-        using var install = RuntimeHandle.UseResourceCallbackInstallMethodsForTest(
-            (_, _) => mln_status.MLN_STATUS_OK,
-            (_, transform) =>
+        const string styleUrl = "transform-test://style.json";
+        var received = new TaskCompletionSource<ResourceTransformRequestHandle>(
+            TaskCreationOptions.RunContinuationsAsynchronously
+        );
+        // The provider passes the style through to the online source, which waits for the answer.
+        var deny = NativeFixture.DenyingProvider.Callback!;
+        await using var fixture = await NativeFixture.CreateAsync(
+            provider: new ResourceProvider
             {
-                if (!failInstall)
-                {
-                    return mln_status.MLN_STATUS_OK;
-                }
-
-                failedReplacement = (ResourceTransformState?)
-                    GCHandle.FromIntPtr((nint)transform->user_data).Target;
-                return mln_status.MLN_STATUS_INVALID_STATE;
+                Callback = (request, handle) =>
+                    request.RequestedUrl == styleUrl
+                        ? ResourceProviderDecision.PassThrough
+                        : deny(request, handle),
             }
         );
-        using var runtime = RuntimeHandle.Create(new RuntimeOptions());
-        runtime.SetResourceTransform(request => request.Url + "?first");
-        var previous = Assert.IsType<ResourceTransformState>(runtime.ResourceTransformStateForTest);
-
-        failInstall = true;
-        Assert.Throws<InvalidStateException>(() =>
-            runtime.SetResourceTransform(request => request.Url + "?second")
+        await fixture.Runtime.SetResourceTransformAsync(
+            new ResourceTransform(
+                (_, url, request) =>
+                {
+                    if (url == styleUrl)
+                        received.TrySetResult(request);
+                    else
+                        request.Close();
+                }
+            ),
+            TestWaits.Token
         );
+        await fixture.Map.SetStyleUrlAsync(styleUrl, TestWaits.Token);
+        var request = await received.Task.WaitAsync(TestWaits.Deadline, TestWaits.Token);
 
-        Assert.Same(previous, runtime.ResourceTransformStateForTest);
-        Assert.True(previous.IsHandleAllocatedForTest);
-        Assert.NotNull(failedReplacement);
-        Assert.False(failedReplacement.IsHandleAllocatedForTest);
-    }
-
-    [BindingSpecTest("BND-140")]
-    [Fact]
-    public void CanInstallReplaceAndClearResourceTransform()
-    {
-        using var runtime = RuntimeHandle.Create(new RuntimeOptions());
-
-        runtime.SetResourceTransform(request => request.Url + "?first");
-        runtime.SetResourceTransform(request => request.Url + "?second");
-        runtime.ClearResourceTransform();
+        await Task.Run(() =>
+        {
+            request.Complete("unsupported://rewritten.json");
+            request.Close();
+        });
+        // The online source cannot load the rewritten scheme.
+        await fixture.WaitForMapEventAsync(RuntimeEventType.MapLoadingFailed);
+        await fixture.Runtime.ClearResourceTransformAsync(TestWaits.Token);
     }
 }

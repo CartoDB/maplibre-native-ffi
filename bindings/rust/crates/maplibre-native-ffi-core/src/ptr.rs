@@ -1,174 +1,57 @@
-use std::ptr::{self, NonNull};
+use crate::{Error, Result, Status};
 
-use crate::error::{Error, Result};
-
-#[derive(Debug)]
-pub struct OutPtr<T> {
-    value: *mut T,
-}
-
-impl<T> OutPtr<T> {
-    pub fn new() -> Self {
-        Self {
-            value: ptr::null_mut(),
-        }
+/// Reads `count` records that native lays out `stride` bytes apart.
+///
+/// A native build whose record grew reports a stride wider than this
+/// binding's record, so each record is read at its stride and the members this
+/// binding does not know are skipped. A stride narrower than the record cannot
+/// hold one and fails.
+///
+/// # Safety
+///
+/// A nonzero `count` needs a pointer that addresses `count` initialized
+/// records at the given stride, which stay valid while the iterator runs.
+pub unsafe fn strided_records<T: Copy>(
+    pointer: *const T,
+    count: usize,
+    stride: usize,
+) -> Result<impl Iterator<Item = T>> {
+    if count != 0
+        && (pointer.is_null()
+            || stride < std::mem::size_of::<T>()
+            || count > isize::MAX as usize / stride)
+    {
+        return Err(Error::new(
+            Status::NativeError,
+            "invalid native record stride",
+        ));
     }
-
-    pub fn as_mut_ptr(&mut self) -> *mut *mut T {
-        &mut self.value
-    }
-
-    pub fn get(&self) -> *mut T {
-        self.value
-    }
-
-    pub fn into_non_null(self, name: &'static str) -> Result<NonNull<T>> {
-        non_null_mut(self.value, name)
-    }
-
-    pub fn into_option(self) -> Option<NonNull<T>> {
-        NonNull::new(self.value)
-    }
-}
-
-impl<T> Default for OutPtr<T> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-/// An out-parameter for a handle the C API issues, initialized to the null
-/// handle as the C contract requires.
-#[derive(Debug)]
-pub struct OutHandle<T: crate::handle::NativeHandle> {
-    value: T,
-}
-
-impl<T: crate::handle::NativeHandle> OutHandle<T> {
-    pub fn new() -> Self {
-        Self {
-            value: T::from_raw(0),
-        }
-    }
-
-    pub fn as_mut_ptr(&mut self) -> *mut T {
-        &raw mut self.value
-    }
-
-    pub fn get(&self) -> T {
-        self.value
-    }
-
-    /// The issued handle, or an error when the C API left it null.
-    pub fn into_live(self, name: &'static str) -> Result<T> {
-        if self.value.to_raw() == 0 {
-            return Err(null_handle_error(name));
-        }
-        Ok(self.value)
-    }
-
-    /// The issued handle, or `None` when the C API left it null.
-    pub fn into_option(self) -> Option<T> {
-        (self.value.to_raw() != 0).then_some(self.value)
-    }
-}
-
-impl<T: crate::handle::NativeHandle> Default for OutHandle<T> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-pub fn non_null_mut<T>(ptr: *mut T, name: &'static str) -> Result<NonNull<T>> {
-    NonNull::new(ptr).ok_or_else(|| null_pointer_error(name))
-}
-
-pub fn null_handle_error(name: &'static str) -> Error {
-    Error::invalid_argument(format!("{name} must not be the null handle"))
-}
-
-pub fn null_pointer_error(name: &'static str) -> Error {
-    Error::invalid_argument(format!("{name} must not be null"))
-}
-
-pub fn option_ptr<T>(value: Option<&T>) -> *const T {
-    value.map_or(ptr::null(), ptr::from_ref)
-}
-
-pub fn const_ptr_or_null<T>(values: &[T]) -> *const T {
-    if values.is_empty() {
-        ptr::null()
-    } else {
-        values.as_ptr()
-    }
-}
-
-pub fn mut_ptr_or_null<T>(values: &mut [T]) -> *mut T {
-    if values.is_empty() {
-        ptr::null_mut()
-    } else {
-        values.as_mut_ptr()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn out_pointer_starts_null_and_wraps_non_null_values() {
-        let mut out = OutPtr::<u8>::new();
-        assert!(out.get().is_null());
-
-        let mut value = 7u8;
-        // Simulate a native function writing a handle through a T** out-pointer.
+    Ok((0..count).map(move |index| {
+        // SAFETY: the caller supplies count records of the given stride.
         unsafe {
-            *out.as_mut_ptr() = &mut value;
+            pointer
+                .cast::<u8>()
+                .add(index * stride)
+                .cast::<T>()
+                .read_unaligned()
         }
+    }))
+}
 
-        assert_eq!(
-            out.into_non_null("value").unwrap().as_ptr().cast_const(),
-            ptr::addr_of!(value)
-        );
+/// Borrows an initialized native array for the caller's borrow lifetime.
+///
+/// # Safety
+/// A nonempty pointer must address `count` initialized elements for that lifetime.
+pub unsafe fn slice<'a, T>(pointer: *const T, count: usize) -> Result<&'a [T]> {
+    if count == 0 {
+        return Ok(&[]);
     }
-
-    #[test]
-    fn out_pointer_into_option_wraps_non_null_values() {
-        let mut out = OutPtr::<u8>::new();
-        let mut value = 7u8;
-
-        // Simulate a native function writing an optional handle through a T**
-        // out-pointer.
-        unsafe {
-            *out.as_mut_ptr() = &mut value;
-        }
-
-        assert_eq!(
-            out.into_option().unwrap().as_ptr().cast_const(),
-            ptr::addr_of!(value)
-        );
+    if pointer.is_null()
+        || !pointer.is_aligned()
+        || count > isize::MAX as usize / std::mem::size_of::<T>().max(1)
+    {
+        return Err(Error::invalid_argument("invalid native array"));
     }
-
-    #[test]
-    fn non_null_wrappers_reject_null() {
-        let error = non_null_mut::<u8>(ptr::null_mut(), "value").unwrap_err();
-
-        assert_eq!(error.kind(), crate::error::ErrorKind::InvalidArgument);
-        assert!(error.diagnostic().contains("value must not be null"));
-    }
-
-    #[test]
-    fn optional_and_slice_pointers_use_null_for_absent_or_empty_values() {
-        let value = 7u8;
-        assert_eq!(option_ptr(Some(&value)), ptr::from_ref(&value));
-        assert!(option_ptr::<u8>(None).is_null());
-
-        let values = [1u8, 2, 3];
-        assert_eq!(const_ptr_or_null(&values), values.as_ptr());
-        assert!(const_ptr_or_null::<u8>(&[]).is_null());
-
-        let mut values = [1u8, 2, 3];
-        assert_eq!(mut_ptr_or_null(&mut values), values.as_mut_ptr());
-        assert!(mut_ptr_or_null::<u8>(&mut []).is_null());
-    }
+    // SAFETY: the caller guarantees count initialized values.
+    Ok(unsafe { std::slice::from_raw_parts(pointer, count) })
 }

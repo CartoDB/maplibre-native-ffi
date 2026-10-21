@@ -10,39 +10,45 @@ bool build_keyed_url(
   const char* url, const char* key, char* out, size_t out_size
 );
 
-static mln_status add_api_key(
+static void add_api_key(
   void* user_data, uint32_t kind, const char* url,
-  mln_resource_transform_response* out_response
+  mln_resource_transform_request request
 ) {
   // #region match
   const char* api_key = user_data;
   (void)kind;
 
   if (strncmp(url, trusted_prefix, sizeof(trusted_prefix) - 1) != 0) {
-    return MLN_STATUS_OK;  // An empty response preserves the original URL.
+    // Releasing the request without an answer keeps the original URL.
+    mln_resource_transform_request_release(request);
+    return;
   }
   // #endregion match
 
   // #region rewrite
   char rewritten[2048];
-  if (!build_keyed_url(url, api_key, rewritten, sizeof(rewritten))) {
-    return MLN_STATUS_OK;
+  if (build_keyed_url(url, api_key, rewritten, sizeof(rewritten))) {
+    // The call copies the URL before rewritten leaves scope.
+    mln_resource_transform_request_complete(
+      request, (mln_buffer_view){.data = rewritten, .size = strlen(rewritten)},
+      NULL
+    );
   }
-
-  // The helper copies the URL before rewritten leaves scope.
-  return mln_resource_transform_response_set_url(
-    out_response, rewritten, strlen(rewritten)
-  );
+  mln_resource_transform_request_release(request);
   // #endregion rewrite
 }
 
 // #region install
-void install_transform(mln_runtime runtime, char* api_key) {
+mln_status install_transform(
+  mln_runtime runtime, char* api_key, const mln_completion* completion
+) {
   mln_resource_transform transform = {
     .size = sizeof(transform),
     .callback = add_api_key,
     .user_data = api_key,
   };
-  mln_runtime_set_resource_transform(runtime, &transform);
+  return mln_runtime_set_resource_transform(
+    runtime, &transform, completion, NULL
+  );
 }
 // #endregion install

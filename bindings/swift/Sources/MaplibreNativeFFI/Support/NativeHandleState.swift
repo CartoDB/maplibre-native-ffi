@@ -1,129 +1,123 @@
 import Foundation
 
 final class NativeHandleState<Handle: NativeHandle>: @unchecked Sendable {
-  private enum State {
-    case live(Handle)
-    case closing(Handle)
-    case closed
-  }
-
   private let typeName: String
-  private let lock = NSCondition()
-  private var state: State
-  private var activeUses = 0
+  private let lock = NSLock()
+  private var closed = false
+  private let parent: AnyObject?
+  let value: Handle
+  private let protectsCopies: Bool
+  private var readers = 0
+  private var releasing = false
 
-  init(typeName: String, handle: Handle) throws {
+  init(
+    typeName: String,
+    handle: Handle,
+    parent: AnyObject? = nil,
+    protectsCopies: Bool = false
+  ) throws {
     guard !handle.isNull else {
-      throw NativeStatusFailure(
-        rawStatus: 0,
-        diagnostic: "\(typeName) native handle is the null handle"
-      )
+      throw MaplibreError
+        .invalidArgument("\(typeName) native handle is the null handle")
     }
     self.typeName = typeName
-    state = .live(handle)
+    self.parent = parent
+    value = handle
+    self.protectsCopies = protectsCopies
   }
 
   deinit {
-    if let handle = lock.withLock({ leakedHandle }) {
-      NativeHandleLeakReporter.report(
-        NativeHandleLeak(typeName: typeName, handle: handle.raw)
-      )
+    if !closed {
+      NativeRetirement(
+        handle: value,
+        parent: parent,
+        typeName: typeName
+      ).schedule()
     }
   }
 
-  var isClosed: Bool {
-    lock.withLock {
-      if case .closed = state {
-        true
-      } else {
-        false
+  func retire() {
+    guard !lock.withLock({ closed }) else { return }
+    if NativeRetirement(handle: value, parent: parent, typeName: typeName)
+      .dispose(reportLeak: false)
+    {
+      lock.withLock { closed = true }
+    }
+  }
+
+  func handOff() {
+    lock.withLock { closed = true }
+  }
+
+  /// Batch getters lend memory beyond the native call, until the copy ends.
+  func withHandle<T>(_ body: (Handle) throws -> T) throws -> T {
+    if protectsCopies {
+      try lock.withLock {
+        guard !releasing
+        else { throw MaplibreError.invalidState("Batch is in use") }
+        readers += 1
       }
-    }
-  }
-
-  func requireLive() throws -> Handle {
-    try lock.withLock { try requireLiveLocked() }
-  }
-
-  private func requireLiveLocked() throws -> Handle {
-    switch state {
-    case let .live(handle):
-      return handle
-    case .closing:
-      throw NativeStatusFailure(
-        rawStatus: 0,
-        diagnostic: "\(typeName) is closing"
-      )
-    case .closed:
-      throw NativeStatusFailure(
-        rawStatus: 0,
-        diagnostic: "\(typeName) is closed"
-      )
-    }
-  }
-
-  /// Runs `use` with the handle and holds off release until it returns. Use
-  /// this for handles the host may use and release from different threads;
-  /// handles confined to one thread can call native after `requireLive()`.
-  ///
-  /// `use` runs outside the lock, so concurrent uses proceed together. Calling
-  /// `closeOnce` from inside `use` on the same thread deadlocks.
-  func withLive<T>(_ use: (Handle) throws -> T) throws -> T {
-    let handle = try lock.withLock {
-      let handle = try requireLiveLocked()
-      activeUses += 1
-      return handle
     }
     defer {
-      lock.withLock {
-        activeUses -= 1
-        lock.broadcast()
+      if protectsCopies {
+        lock.withLock { readers -= 1 }
       }
     }
-    return try use(handle)
+    return try body(value)
   }
 
-  func closeOnce(_ destroy: (Handle) throws -> Void) throws {
-    let liveHandle: Handle? = try lock.withLock {
-      switch state {
-      case let .live(handle):
-        state = .closing(handle)
-        // Uses that already passed their liveness check still hold the handle,
-        // so wait for them before destroying it.
-        while activeUses > 0 {
-          lock.wait()
-        }
-        return handle
-      case .closing:
-        throw NativeStatusFailure(
-          rawStatus: 0,
-          diagnostic: "\(typeName) is closing"
-        )
-      case .closed:
-        return nil
+  func closeOnce(
+    idempotent: Bool = true,
+    _ destroy: (Handle) throws -> Void
+  ) throws {
+    let shouldClose = try lock.withLock {
+      if protectsCopies, readers != 0 || releasing {
+        throw MaplibreError.invalidState("Batch is in use")
       }
+      if idempotent, closed {
+        return false
+      }
+      releasing = protectsCopies
+      return true
     }
-    guard let liveHandle else { return }
+    guard shouldClose else { return }
+    defer {
+      lock.withLock { releasing = false }
+      withExtendedLifetime(parent) {}
+    }
+    try destroy(value)
+    lock.withLock { closed = true }
+  }
+}
 
-    do {
-      try destroy(liveHandle)
-      lock.withLock {
-        state = .closed
-      }
-    } catch {
-      lock.withLock {
-        state = .live(liveHandle)
-      }
-      throw error
+private final class NativeRetirement<Handle: NativeHandle>: @unchecked Sendable {
+  let handle: Handle
+  let parent: AnyObject?
+  let typeName: String
+
+  init(handle: Handle, parent: AnyObject?, typeName: String) {
+    self.handle = handle
+    self.parent = parent
+    self.typeName = typeName
+  }
+
+  /// A leaked owner's last reference can disappear inside an unsafe callback.
+  func schedule() {
+    DispatchQueue.global().async {
+      self.dispose(reportLeak: true)
     }
   }
 
-  private var leakedHandle: Handle? {
-    switch state {
-    case let .live(handle), let .closing(handle):
-      handle
-    case .closed:
-      nil
+  @discardableResult
+  func dispose(reportLeak: Bool) -> Bool {
+    defer { withExtendedLifetime(parent) {} }
+    let disposed = handle.disposeAbandoned()
+    if reportLeak || !disposed {
+      let detail = disposed ? "" : " (native disposal failed)"
+      reportToStandardError(
+        "Leaked \(typeName) native handle 0x\(String(handle.raw, radix: 16))\(detail); close handles explicitly.\n"
+      )
     }
+    return disposed
   }
 }

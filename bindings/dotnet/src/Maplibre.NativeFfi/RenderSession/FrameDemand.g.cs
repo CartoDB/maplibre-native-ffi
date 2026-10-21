@@ -1,0 +1,35 @@
+// Generated from the C headers by tools/bindgen. Do not edit.
+#nullable enable
+namespace Maplibre.NativeFfi;
+
+/// <summary>
+/// One nonblocking request for a frame.
+/// </summary>
+/// <remarks>
+/// See <c>mln_frame_demand</c> in the <see
+/// href="https://maplibre.org/maplibre-native-ffi/reference/c/render__session_8h.html">C API reference</see>.
+/// </remarks>
+/// <param name="Flags">
+/// A bitwise OR of <c>mln_frame_demand_flag</c> values. Defaults to
+/// <c>MLN_FRAME_DEMAND_IF_NEEDED</c>.
+/// </param>
+/// <param name="Token">
+/// Host identity returned with the terminal frame result.
+/// </param>
+public readonly partial record struct FrameDemand(FrameDemandFlag Flags, ulong Token)
+{
+    public FrameDemand()
+        : this(default!, default!)
+    {
+        this = Default;
+    }
+
+    public static FrameDemand Default
+    {
+        get
+        {
+            using var call = NativeCall.Enter(null);
+            return GeneratedValues.CopyFrameDemand(NativeMethods.mln_frame_demand_default());
+        }
+    }
+}

@@ -74,9 +74,6 @@ class FeatureStateStore {
 auto validate_feature_state_selector(
   const mln_feature_state_selector* selector, bool require_feature_id
 ) -> mln_status;
-auto selector_has_field(
-  const mln_feature_state_selector& selector, uint32_t field
-) -> bool;
 auto optional_selector_string(
   const mln_feature_state_selector& selector, uint32_t field,
   mln_buffer_view value
@@ -96,9 +93,9 @@ void apply_feature_state_diff(
   const std::unordered_set<std::string>& rendered_source_ids
 );
 
-void remember_rendered_sources(
+void reconcile_feature_state_sources(
   std::unordered_set<std::string>& rendered_source_ids,
-  const mln::UpdateParameters& update
+  FeatureStateSnapshot& applied, const mln::UpdateParameters& update
 );
 
 }  // namespace mln::core

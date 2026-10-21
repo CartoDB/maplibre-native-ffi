@@ -1,155 +1,170 @@
 ---
 title: Concepts
-description: Core mental models for using MapLibre Native FFI.
+description:
+  How runtimes, maps, and render sessions fit into a host application.
 ---
 
-MapLibre Native FFI exposes MapLibre Native concepts directly. A host uses a
-language binding or calls the C API, and higher-level adapters build on the same
-model.
-
-Three objects form the core API: the runtime, the map, and the render session.
-Events and bindings connect those objects to host code.
+MapLibre Native FFI provides map state and rendering through a C API and
+language bindings. The host supplies its UI, graphics resources, and frame
+cadence. Three objects form the core API: the runtime, the map, and the render
+session.
 
 ## Runtime
 
-The runtime owns scheduler state and event storage for one owner thread. The
-host creates the runtime on the thread that will pump it. Runtime work and
-events flow through that thread.
+A runtime owns a native scheduler thread and shared resource services such as
+networking and the cache database. One runtime can serve multiple maps. Host
+threads submit work, and the scheduler applies it in order.
 
-Each owner thread has at most one live runtime, and destroys it before the
-thread exits. Pumping advances MapLibre Native and collects completed work.
+Callbacks may run on native threads or on the submitting thread. Host code
+schedules UI work on its own event loop. A wake callback announces work that is
+ready; it must return promptly without blocking or waiting for the receiver.
+Each callback's API reference states its threading and reentry rules.
 
-The host sets the pace. A display-paced host pumps once per frame. A host with a
-dedicated pump thread parks that thread until the runtime has work. Other host
-threads wake it through a wake source.
+Some hosts, such as Dart isolates and JavaScript engines, run host code on their
+own event loop. Every registration whose callback the host need not answer on a
+native thread accepts a
+[delivery queue](/maplibre-native-ffi/reference/c/delivery_8h.html) in place of
+its callback. Native code copies the payload into the queue and wakes the host,
+which drains the copies on its own event loop. Only the HTTP header transform
+requires an answer inside the call, so it takes native rules for these hosts. A
+resource provider takes routes that choose which requests reach it. Queue
+delivery finishes when native code inserts the result or discards it after queue
+release. Runtime shutdown can finish before the host drains those deliveries.
+The host retains its delivery tokens until it handles or abandons them.
+
+The [runtime reference](/maplibre-native-ffi/reference/c/runtime_8h.html) covers
+runtime options and shutdown. The
+[creation guide](/maplibre-native-ffi/guides/create-a-map/) shows the first
+steps.
 
 ## Map
 
-A map belongs to a runtime. It owns style documents, sources, layers, images,
-camera state, feature state, observer events, and render invalidation.
+A map belongs to a runtime and holds the style, sources, layers, camera, and
+feature state. It exists independently of a render target, so the host can
+configure it before attaching graphics resources.
 
-A map is independent of a render target. The host can create, configure, query,
-and observe a map before the first frame.
+A style describes what to draw. Sources supply data, and layers choose its
+appearance and drawing order. Sources and layers use MapLibre style-spec JSON.
+Loading another style replaces the style's contents; host additions must be
+applied again.
 
-Sources and layers use style-spec JSON. This representation keeps the API
-aligned with the style specification across every layer type. Typed entry points
-cover behavior beyond construction, such as source-type validation and per-frame
-property updates.
+Map mutations are asynchronous commands. Acceptance means that native code
+copied and queued the input. A completion reports the command's outcome. A host
+can discard that outcome by omitting the completion; failed discarded commands
+log a warning. Cancelling a binding's wait ends the wait, while native work
+continues.
+
+A later command or query completion on the same map fences discarded commands. A
+map snapshot read after that completion observes their changes. After a
+discarded resize, a render session barrier fences only the session's applied
+extent; the resize completion fences both the session and the map. A snapshot
+generation alone does not fence a command, because other work also publishes
+generations.
+
+Published snapshots give UI and display threads a synchronous copy of map state.
+Their generations connect commands, events, and rendered frames when a host
+needs to know which state it is reading. A command group holds render updates
+until the group ends, allowing related changes to appear together in a frame.
+
+The [map reference](/maplibre-native-ffi/reference/c/map_8h.html) covers
+commands, snapshots, and groups.
+[Load a style](/maplibre-native-ffi/guides/load-a-style/) introduces the source
+and layer workflow.
 
 ## Render session
 
-A render session renders one map to one render target. A map carries at most one
-live render session.
+A render session draws one map into one render target. A map has at most one
+live session. Keeping the session separate lets the host replace graphics
+resources while retaining map state.
 
-Render targets come in three kinds:
+A native surface presents to a window, view, or canvas. An owned texture target
+uses textures allocated by the session for offscreen rendering. A borrowed
+texture target uses textures allocated by the host for compositing into its own
+scene.
 
-| Render target           | Owned by | Renders                                    |
-| ----------------------- | -------- | ------------------------------------------ |
-| native surface          | caller   | To a window, view, or canvas, and presents |
-| owned texture target    | session  | Offscreen, into a session allocation       |
-| borrowed texture target | caller   | Offscreen, into a caller allocation        |
+The host also chooses where graphics work runs. A core-worker driver uses a
+native graphics thread. A caller-graphics-thread driver requires the host to
+service queued work on its graphics thread, including while display callbacks
+are paused. The backend and target determine which choice is available.
 
-Keeping render sessions separate from maps lets the host manage the graphics
-backend lifecycle independently.
+The host requests frames at its own cadence and drains frame results when they
+are ready. A rendered result refers to the map state that the session drew;
+resource loads and animated camera changes may require later frames. Texture
+frames require producer synchronization before host reads and consumer
+synchronization before the session reuses them.
 
-The host supplies the graphics implementation. A render target names a context
-and a surface that the host created, so the library binds its graphics entry
-points to the implementation already in the process rather than to a copy of its
-own. A process then holds a single implementation, and handles that it mints
-stay valid everywhere they are passed.
+CPU completion is the default: the producer finishes its GPU writes before
+publishing a texture frame, and the host finishes its reads before releasing it.
+Shared OpenGL texture targets on EGL and WGL also accept fence synchronization,
+selected at attachment. The producer flushes a fence after rendering, and the
+host waits in a context of the same share group before reading. A consumer fence
+lets the session order slot reuse after the host's reads without waiting on the
+CPU. The session owns producer fences; the host owns consumer fences. The
+[render target reference](/maplibre-native-ffi/reference/c/render__target_8h.html)
+states their lifetimes and context requirements.
 
-Most platforms provide that implementation. Apple provides neither EGL nor
-Vulkan, so a macOS host loads an EGL implementation such as ANGLE for the OpenGL
-backend, or MoltenVK for the Vulkan backend. That implementation brings the
-headers to build against.
+The host keeps graphics resources alive through attachment and teardown. Normal
+shutdown detaches the session before destroying those resources. Abandon handles
+a target that can no longer be serviced and may retain graphics resources until
+process exit.
 
-The thread that attaches a render session becomes its owner thread for the
-session's lifetime. The attaching thread can differ from the map's owner thread.
-A host therefore attaches on the thread that owns its graphics context and draws
-frames, while another thread pumps the runtime and map. A session call from any
-other thread reports an owner-thread status.
-
-### OpenGL context ownership
-
-OpenGL binds a context to a thread, so an OpenGL render target names how the
-session and the host divide the thread's context.
-
-A shared session leaves the thread as it found it. Each render makes the
-session's context current and restores whatever was current before, and that
-context joins the host share group, so the host draws its own graphics on the
-same thread and samples session textures from its own context. Texture targets
-and WebGL work this way.
-
-A dedicated session owns the thread's context. It creates a context of its own
-from the display or device the host already presents through, joins no share
-group, and keeps that context current between renders. Choose it for a surface
-target on a thread that exists to draw one map, such as an Android host
-rendering into a `SurfaceView`. The host then builds no context of its own, and
-each frame saves and restores nothing.
+[Attach a render target](/maplibre-native-ffi/guides/attach-a-render-target/)
+covers target and driver choices.
+[Run the render loop](/maplibre-native-ffi/guides/run-the-render-loop/) connects
+frame demand to host scheduling. The
+[session reference](/maplibre-native-ffi/reference/c/render__session_8h.html)
+states synchronization and teardown contracts.
 
 ## Events
 
-Events preserve MapLibre Native's observer-driven model across the FFI boundary.
-The runtime copies events into host-visible storage, and host code drains those
-events from the runtime.
+The runtime delivers events from its maps and resource services. Events report
+style loads, rendered frames, download progress, and resource failures. A
+subscription selects which event types reach the runtime's event handler.
 
-Events report map lifecycle, rendering progress, resource activity, diagnostics,
-and asynchronous failures.
+A native callback borrows an event span for its call. Queue delivery includes
+the span in an owned delivery batch. The host routes events by source ID and
+copies any values that it keeps. Events report changes; completions report
+individual submissions, and frame results report individual frame demands.
 
-Rendering observer events reach the runtime queue through the map's run loop. A
-pump after the render call makes those events available to drain.
-
-Each map and each runtime carries a subscription: the set of event types it
-queues. Default options select every event type the library reports, and a host
-narrows a subscription by naming the types it reads. An unselected event is
-never built, never queued, and never raises the wake flag that releases a parked
-pump.
-
-One drain reports a batch: every queued event in order, plus the message text
-that those events carry. Copy any value you keep, because the next drain for
-that runtime replaces the batch.
-
-Queued events belong to their source. Destroying a map discards that map's
-queued events immediately. Read any state that teardown needs synchronously
-while the map is live.
+[Handle events](/maplibre-native-ffi/guides/handle-events/) shows both delivery
+paths. The [runtime reference](/maplibre-native-ffi/reference/c/runtime_8h.html)
+describes event payloads and generation ordering.
 
 ## Failures
 
-Status-returning calls report synchronous failures. Each binding surfaces them
-in its own idiom: an exception, a result type, or an error return. Examples
-include a call from the wrong thread and an invalid argument.
+Immediate calls report validation or inspection failures. A submission can fail
+at acceptance or later in its completion. Resource failures also appear as
+events. Bindings expose these channels through their language's error and
+asynchronous result types.
 
-Events report asynchronous failures, such as a style load, resource request, or
-still-image request that failed. Drain events in addition to checking call
-results.
+The host handles both acceptance and completion failures. Diagnostic text
+explains the failure; the
+[completion reference](/maplibre-native-ffi/reference/c/completion_8h.html)
+defines command outcomes and borrowed completion results.
 
 ## Layer plugins
 
-MapLibre Native's plugin API lets native code add style layer types. A plugin
-declares paint properties and shaders for each render backend, lays out tile
-features into vertex data on tile workers, and fills uniform blocks on the
-render thread. The renderer owns the GPU resources and draws the result like any
-other layer, so a style names the layer type and sets its paint properties the
-same way it does for built-in layers.
+Native plugins add style layer types, with properties and shaders that styles
+use alongside built-in layers. Plugin code runs on MapLibre's threads and stays
+loaded for the process lifetime. Plugin authoring uses the native contract;
+language bindings expose registration for host integrations.
 
-This library builds plugin support into its core and exports the registration
-entry point. A plugin registers once per process, before a style that uses its
-layer types loads. Registration retains the plugin's callbacks for the rest of
-the process, and those callbacks run on MapLibre's threads, so a plugin is
-native code. Language bindings expose the registration function for plugin
-integrations; plugin authoring uses the raw C contract. The plugin API declares
-shaders for OpenGL, Vulkan, and Metal; a WebGPU build registers a plugin but has
-no shader path for its layers.
-
-Plugin integrations obtain the host's registration function through
-`mln_plugin_get_register_function_v1()` and pass it to their own registration
-entry point. The integration loads the plugin and keeps its code loaded for the
-process lifetime. The plugin registers its descriptors through the supplied
-function, into the host's copy of MapLibre Native.
+The [plugin reference](/maplibre-native-ffi/reference/c/plugin_8h.html) covers
+registration and backend support.
 
 ## Language bindings
 
-Language bindings preserve the runtime, map, render session, and event model in
-the target language. They sit directly above the C API and expose the same
-objects and relationships, adding language-appropriate safety around handles,
-lifetimes, errors, and event draining.
+Bindings preserve the runtime, map, render session, and event model. They add
+language-appropriate safety around handles, borrowed values, callbacks, and
+errors.
+
+The host closes owned handles explicitly using its language's cleanup idiom and
+keeps borrowed values only for their documented scope. Garbage-collected
+bindings report handles reclaimed while still open as leaks. Automatic cleanup
+is a fallback; explicit teardown lets the host release graphics resources in
+order.
+
+[Install](/maplibre-native-ffi/install/) covers packages for each language. The
+API references describe their generated shapes, and the
+[examples](https://github.com/maplibre/maplibre-native-ffi/tree/main/examples)
+show complete integrations.

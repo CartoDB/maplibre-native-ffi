@@ -4,25 +4,11 @@
 worktree after checking out the pinned commit. The submodule tracks upstream.
 The patches below describe the changes that we carry and their upstream status.
 
-`0003-run-loop-budget.patch` adds `RunLoop::runOnce(Duration budget)`, which
-stops dequeuing tasks once the budget has elapsed. At least one task runs, the
-remaining tasks stay queued, and the loop wakes itself so the next pass picks
-them up. The C API uses it to bound one pump's drain. Upstream:
-[maplibre-native#4577](https://github.com/maplibre/maplibre-native/pull/4577).
-
 `0004-opengl-valid-api-calls.patch` allocates storage before copying a uniform
 buffer and isolates allocation errors from earlier OpenGL calls. This prevents
 strict implementations and the API 26 Android emulator from turning stale errors
 into false allocation failures. Upstream:
 [maplibre-native#4578](https://github.com/maplibre/maplibre-native/pull/4578).
-
-`0006-process-lifetime-logging.patch` gives the global logger, its observer,
-mutex, severity settings, and scheduler process lifetime. This prevents static
-destruction from joining a logging worker whose thread-local cleanup must detach
-from an already shut down host VM. Explicit observer replacement and removal
-still release the previous observer. Hosts remove observers before tearing down
-their environment; the Node SDK uses its environment cleanup hook. Upstream:
-[maplibre-native#4574](https://github.com/maplibre/maplibre-native/pull/4574).
 
 `0007-retain-active-on-demand-images.patch` keeps present on-demand images
 registered to their requestor when the same request also needs missing images.
@@ -188,6 +174,48 @@ previous update's state. Evaluation rebuilt it only when a state key that the
 ramp reads had changed. A write to an unrelated key in the same update therefore
 left an added layer with an empty ramp, and a changed layer with outdated
 colors. Native map pixel regressions cover both cases for all three layer types.
+
+`0042-destroy-thread-local-run-loop.patch` preserves thread-exit cleanup for the
+run loop that `Scheduler::GetCurrent()` creates for a thread with no scheduler.
+It applies `[[clang::always_destroy]]` when the compiler supports the attribute
+and leaves other compilers' normal destruction unchanged. This supports builds
+that disable static destructors, including this library's
+`-fno-c++-static-destructors` build. The option keeps state that MapLibre
+threads read alive during process exit, and also disables thread-local
+destructors. The run loop owns resources that its destructor frees when its
+thread ends. Vendored glslang's per-thread default pool allocator also loses its
+destructor; glslang compiles shaders in pools that `TShader` and `TProgram` own,
+so a thread leaks only what it allocated from the default pool outside them.
+Upstream: not yet proposed.
+
+`0043-cancel-camera-transitions-by-id.patch` adds an optional
+`AnimationOptions::transitionId` and a `cancelTransitions(uint64_t)` overload on
+`Transform` and `Map`. The overload cancels the commands that carry that
+identity and leaves the others animating, so a host can end one camera command
+without ending every other. It builds on the per-command transitions of
+`0015-independent-camera-animations.patch`, and each cancelled command finishes
+once, as the unfiltered cancellation finishes it. An identity in the options
+lets the caller match a command without RTTI, which `std::function::target()`
+needs and this build turns off. The patch includes a Transform regression for a
+matching cancellation, a cancellation that matches nothing, and the command that
+keeps running. Upstream: not yet proposed; it depends on 0015.
+
+`0044-fly-duration-range.patch` rejects a flight whose derived duration cannot
+fit Native's duration before converting seconds to integer ticks. The bound uses
+an exclusive maximum because the floating-point representation of the maximum
+integer duration rounds upward. Padding can make the flight's visible span
+degenerate, so camera zoom limits alone cannot bound every flight's path length.
+The Transform regression covers tiny velocities, a representable flight, and an
+explicit duration that overrides velocity. The C regression in
+`tests/native/abi/map/camera.c` checks the completion status and diagnostic.
+Upstream: not yet proposed.
+
+`0045-projection-world-copy.patch` converts a coordinate in the world copy
+nearest the projection's unwrapped camera center. The longitude offset handles
+any number of world copies in either direction. The public C regression in
+`tests/native/abi/render/frame_view.c` compares projected coordinates with drawn
+pixels and checks that inverse conversion preserves the visible world copy.
+Upstream: not yet proposed.
 
 Each patch is a squashed diff applied on top of the patches before it. Patch
 context and test placement follow the pinned source and earlier patches. The

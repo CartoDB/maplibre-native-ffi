@@ -6,122 +6,63 @@ package maplibre
 import "C"
 
 import (
-	"errors"
+	"bytes"
 	"fmt"
-
-	internalstatus "github.com/maplibre/maplibre-native-ffi/bindings/go/internal/status"
+	"sync"
+	"unsafe"
 )
 
-var (
-	// ErrInvalidArgument reports invalid arguments, released handles, invalid
-	// enum values, invalid string shapes, or other binding-owned argument errors.
-	ErrInvalidArgument = errors.New("maplibre: invalid argument")
-	// ErrInvalidState reports valid objects used in an invalid lifecycle state.
-	ErrInvalidState = errors.New("maplibre: invalid state")
-	// ErrWrongThread reports use of an owner-thread-affine handle from the wrong
-	// OS thread.
-	ErrWrongThread = errors.New("maplibre: wrong thread")
-	// ErrUnsupported reports a backend, platform, or operation unavailable in
-	// the linked native build.
-	ErrUnsupported = errors.New("maplibre: unsupported")
-	// ErrNative reports a MapLibre Native error converted to a C status.
-	ErrNative = errors.New("maplibre: native error")
-	// ErrABIVersionMismatch reports that the loaded C ABI version is
-	// incompatible with this binding.
-	ErrABIVersionMismatch = errors.New("maplibre: ABI version mismatch")
-	// ErrUnknownStatus reports a status value unknown to this binding version.
-	ErrUnknownStatus = errors.New("maplibre: unknown native status")
-)
-
-// Error describes a MapLibre Native binding or C status failure.
+// Error carries the generated native status and a copied diagnostic.
 type Error struct {
-	kind       error
-	rawStatus  int32
-	hasStatus  bool
+	Status     Status
 	diagnostic string
 }
 
-func newBindingError(kind error, diagnostic string) *Error {
-	return &Error{kind: kind, diagnostic: diagnostic}
+func newBindingError(status Status, diagnostic string) *Error {
+	return &Error{Status: status, diagnostic: diagnostic}
 }
 
-func newABIVersionMismatchError(expected, actual uint32) *Error {
-	return newBindingError(
-		ErrABIVersionMismatch,
-		fmt.Sprintf("unsupported MapLibre Native C ABI version %d; expected %d", actual, expected),
-	)
+func newStatusError(status int32, diagnostic string) *Error {
+	return newBindingError(Status(status), diagnostic)
 }
 
-func newStatusError(failure *internalstatus.NativeError) *Error {
-	return &Error{
-		kind:       kindForStatus(failure.Status),
-		rawStatus:  int32(failure.Status),
-		hasStatus:  true,
-		diagnostic: failure.Diagnostic,
-	}
+func (e *Error) Error() string      { return fmt.Sprintf("%s: %s", e.Status, e.diagnostic) }
+func (e *Error) Unwrap() error      { return e.Status }
+func (e *Error) Diagnostic() string { return e.diagnostic }
+
+// ABIVersionMismatchError identifies the incompatible native and binding versions.
+type ABIVersionMismatchError struct {
+	Expected uint32
+	Actual   uint32
 }
 
-// Error returns a human-readable failure description.
-func (e *Error) Error() string {
-	if e == nil {
-		return "<nil>"
-	}
-	if e.hasStatus {
-		return fmt.Sprintf("MapLibre Native status %d: %s", e.rawStatus, e.diagnostic)
-	}
-	return e.diagnostic
+func (e *ABIVersionMismatchError) Error() string {
+	return fmt.Sprintf("unsupported MapLibre Native C ABI version %d; this binding supports %d", e.Actual, e.Expected)
 }
+func (e *ABIVersionMismatchError) Unwrap() error { return StatusUnsupported }
 
-// Unwrap returns the stable category sentinel so errors.Is works.
-func (e *Error) Unwrap() error {
-	if e == nil {
+// Native writes a call's diagnostic at call exit, and checkNative copies the
+// message before returning the diagnostic to the pool, so calls reuse
+// diagnostics instead of allocating a message buffer each. A diagnostic holds
+// no Go pointers, so cgo permits passing it to native.
+var diagnosticPool = sync.Pool{New: func() any { return new(C.mln_diagnostic) }}
+
+// checkNative runs a status-returning call with a diagnostic and converts a
+// failure status into an *Error that carries the call's diagnostic.
+func checkNative(call func(*C.mln_diagnostic) int32) error {
+	diagnostic := diagnosticPool.Get().(*C.mln_diagnostic)
+	defer diagnosticPool.Put(diagnostic)
+	diagnostic.size = C.uint32_t(unsafe.Sizeof(*diagnostic))
+	// A call without a diagnostic parameter leaves the message untouched, so
+	// clear any message a previous call left behind.
+	diagnostic.message[0] = 0
+	status := call(diagnostic)
+	if status == int32(C.MLN_STATUS_OK) {
 		return nil
 	}
-	return e.kind
-}
-
-// RawStatus returns the C status value and whether this error came from native
-// status conversion.
-func (e *Error) RawStatus() (int32, bool) {
-	if e == nil {
-		return 0, false
+	message := unsafe.Slice((*byte)(unsafe.Pointer(&diagnostic.message[0])), len(diagnostic.message))
+	if end := bytes.IndexByte(message, 0); end >= 0 {
+		message = message[:end]
 	}
-	return e.rawStatus, e.hasStatus
-}
-
-// Diagnostic returns the copied native diagnostic or binding-owned message.
-func (e *Error) Diagnostic() string {
-	if e == nil {
-		return ""
-	}
-	return e.diagnostic
-}
-
-func checkNative[S ~int32](call func() S) error {
-	failure := internalstatus.CheckCall(call, threadLastErrorMessage)
-	if failure == nil {
-		return nil
-	}
-	return newStatusError(failure)
-}
-
-func threadLastErrorMessage() string {
-	return C.GoString(C.mln_thread_last_error_message())
-}
-
-func kindForStatus(status int32) error {
-	switch status {
-	case int32(C.MLN_STATUS_INVALID_ARGUMENT):
-		return ErrInvalidArgument
-	case int32(C.MLN_STATUS_INVALID_STATE):
-		return ErrInvalidState
-	case int32(C.MLN_STATUS_WRONG_THREAD):
-		return ErrWrongThread
-	case int32(C.MLN_STATUS_UNSUPPORTED):
-		return ErrUnsupported
-	case int32(C.MLN_STATUS_NATIVE_ERROR):
-		return ErrNative
-	default:
-		return ErrUnknownStatus
-	}
+	return newStatusError(status, string(message))
 }

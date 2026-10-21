@@ -69,7 +69,7 @@ cargo_about_version = "0.9.2"
 cmake_version = "4.4.4"
 dart_version = "3.13.5"
 dotnet_version = "10.0.402"
-doxygen_version = "1.13.2"
+doxygen_version = "1.18.0"
 dprint_version = "0.63.0"
 emsdk_version = "6.0.12"
 go_version = "1.27.2"
@@ -146,7 +146,9 @@ MLN_FFI_ANDROID_NDK_VERSION = "{{vars.android_ndk_version}}"
 
 # sccache keeps compiled objects in its own disk cache, which every checkout on
 # the machine shares; .mise/bin/with-sccache-basedirs lines the cache keys up
-# across Git worktrees. The R2 backend belongs to CI, which configures it in
+# across Git worktrees and turns preprocessor cache mode off, because that
+# mode's hits restore depfiles that name another worktree's headers. The R2
+# backend belongs to CI, which configures it in
 # .github/actions/setup-ci-deps: those keys carry the toolchain paths of the
 # runner that produced them, so a contributor machine reads its own disk cache
 # instead. CI wraps rustc there as well, where it turns incremental compilation
@@ -220,6 +222,9 @@ run = [
   { task = "//:build-preset", args = [
     "{{usage.preset}}",
   ] },
+  { task = "//:check-exports", args = [
+    "{{usage.preset}}",
+  ] },
   { task = "//:select-clangd-preset", args = [
     "{{usage.preset}}",
   ] },
@@ -245,19 +250,24 @@ sources = [
   "include/**/*",
   "patches/**/*",
   "src/**/*",
+  "tests/graphics/**/*",
+  "tests/native/**/*",
   "third_party/**/*",
 ]
 outputs = { auto = true }
 # The loader component holds the graphics implementation a host supplies for
 # itself, which the package deliberately leaves out. Installing it here is what
 # lets the fixtures and examples drive the API the way a host does; presets
-# whose loader comes from the platform or an SDK install nothing.
+# whose loader comes from the platform or an SDK install nothing. The
+# test-graphics component, also left out of the package, holds the GPU fixtures
+# that binding suites load.
 run = [
   { task = "//:check-cross-sdk", args = [
     "{{usage.preset}}",
   ] },
   '.mise/bin/with-sccache-basedirs cmake --workflow --preset "$usage_preset"',
   'cmake --install "$MISE_MONOREPO_ROOT/build/$usage_preset" --component loader',
+  'cmake --install "$MISE_MONOREPO_ROOT/build/$usage_preset" --component test-graphics',
 ]
 
 [tasks.select-clangd-preset]
@@ -320,6 +330,9 @@ run = [{ task = "//:archive-native", args = ["{{usage.preset}}"] }]
 description = "Archive an already-built native CMake preset."
 usage = 'arg "<preset>"'
 run = [
+  { task = "//:check-exports", args = [
+    "{{usage.preset}}",
+  ] },
   'cpack --preset "$usage_preset"',
   { task = "//:verify-native-package", args = [
     "{{usage.preset}}",
@@ -327,56 +340,91 @@ run = [
 ]
 
 [tasks.test]
-description = "Build and run C API tests for a CMake preset."
+description = "Build and run the native C tests for a CMake preset."
 usage = 'arg "[preset]" default="{{vars.host_native_preset}}"'
 depends = [{ task = "//:build", args = ["{{usage.preset}}"] }]
-# The Emscripten suite runs as a page in headless Chromium; see
-# scripts/run-browser-test.mjs for how a browser is located.
+# Desktop and simulator targets run the suites through ctest, with one entry per
+# test file and one per program in tests/native/exit. The Emscripten suites run
+# as pages in headless Chromium, four for the ABI suite and one for the internal
+# suite; see scripts/run-browser-test.mjs for how a browser is located. Every
+# target that runs through ctest first runs the Rust platform crate's host unit
+# tests with cargo. Emulator and musl targets run each executable once instead:
+# the suites, then the exit programs, then the ABI suite's plugin group in an
+# invocation of its own, since a plugin registration lasts for the rest of the
+# process.
 run = '''
+build_dir="$MISE_MONOREPO_ROOT/build/$usage_preset"
+suite="$build_dir/mln_native_abi_tests"
+internal="$build_dir/mln_native_internal_tests"
+exit_programs=("$build_dir"/mln_native_exit_*)
 if [[ "$usage_preset" == linux-musl-* ]]; then
-  exec "$MISE_MONOREPO_ROOT/scripts/run-musl-test.sh" "$usage_preset"
+  "$MISE_MONOREPO_ROOT/scripts/run-musl-test.sh" "$usage_preset" "$suite" -x /abi/plugin/
+  "$MISE_MONOREPO_ROOT/scripts/run-musl-test.sh" "$usage_preset" "$internal"
+  for program in "${exit_programs[@]}"; do
+    "$MISE_MONOREPO_ROOT/scripts/run-musl-test.sh" "$usage_preset" "$program"
+  done
+  exec "$MISE_MONOREPO_ROOT/scripts/run-musl-test.sh" "$usage_preset" "$suite" -f /abi/plugin/
 elif [[ "$usage_preset" == ios-simulator-* ]]; then
   mise run //:apple-simulator:boot iOS
 elif [[ "$usage_preset" == tvos-simulator-* ]]; then
   mise run //:apple-simulator:boot tvOS
-elif [[ "$usage_preset" == ohos-x64-egl || "$usage_preset" == android-x64-* ]]; then
-  # An emulator target runs the suite through a device shell rather than ctest,
-  # so the fixtures ctest would name by absolute source path are staged
-  # into a directory the runner pushes to the device.
-  platform=${usage_preset%%-*}
-  fixture_source="$MISE_MONOREPO_ROOT/third_party/maplibre-native/test/fixtures"
-  fixture_dir="$MISE_MONOREPO_ROOT/build/$platform-emulator/c-api-fixtures"
-  while IFS= read -r -d '' fixture; do
-    relative_path=${fixture#"$fixture_source"/}
-    destination="$fixture_dir/$relative_path"
-    mkdir -p "$(dirname "$destination")"
-    install -m 644 "$fixture" "$destination"
-  done < <(
-    find "$fixture_source" -type f \
-      \( -name '*.mlt' -o \
-      -path "$fixture_source/offline_database/corrupt-immediate.db" \) -print0
-  )
-  export MLN_FFI_TEST_FIXTURE_DIR="$fixture_dir"
-  if [[ "$platform" == ohos ]]; then
-    exec "$MISE_MONOREPO_ROOT/scripts/run-ohos-emulator-test.sh" \
-      300 \
-      "$MISE_MONOREPO_ROOT/build/$usage_preset/install/lib/libmaplibre-native-c.so" \
-      "$OHOS_SDK_NATIVE/llvm/lib/x86_64-linux-ohos/libc++_shared.so" \
-      -- "$MISE_MONOREPO_ROOT/build/$usage_preset/mln_ffi_c_api_tests"
+elif [[ "$usage_preset" == ohos-x64-egl || "$usage_preset" == android-arm64-* || "$usage_preset" == android-x64-* ]]; then
+  export MLN_FFI_TEST_FIXTURE_DIR="$MISE_MONOREPO_ROOT/tests/native/fixtures"
+  if [[ "$usage_preset" == ohos-* ]]; then
+    runner=(
+      "$MISE_MONOREPO_ROOT/scripts/run-ohos-emulator-test.sh"
+      300
+      "$build_dir/install/lib/libmaplibre-native-c.so"
+      "$OHOS_SDK_NATIVE/llvm/lib/x86_64-linux-ohos/libc++_shared.so"
+      --library "$build_dir/libmln-native-test-plugin.so"
+    )
+  else
+    case "$usage_preset" in
+      android-arm64-*) abi=arm64-v8a ;;
+      android-x64-*) abi=x86_64 ;;
+    esac
+    runner=(
+      "$MISE_MONOREPO_ROOT/scripts/run-android-emulator-test.sh"
+      300
+      "$abi"
+      "$build_dir/install/lib/libmaplibre-native-c.so"
+      --library "$build_dir/libmln-native-test-plugin.so"
+    )
+    if [[ "$usage_preset" == android-x64-egl ]]; then
+      mise run //:android-emulator:boot "$abi" --api 26
+      runner+=(--api 26)
+    fi
   fi
-  emulator_args=()
-  if [[ "$usage_preset" == android-x64-egl ]]; then
-    mise run //:android-emulator:boot x86_64 --api 26
-    emulator_args+=(--api 26)
-  fi
-  exec "$MISE_MONOREPO_ROOT/scripts/run-android-emulator-test.sh" \
-    300 \
-    "$MISE_MONOREPO_ROOT/build/$usage_preset/install/lib/libmaplibre-native-c.so" \
-    ${emulator_args[@]+"${emulator_args[@]}"} \
-    -- "$MISE_MONOREPO_ROOT/build/$usage_preset/mln_ffi_c_api_tests"
+  "${runner[@]}" -x /abi/plugin/ -- "$suite" "$internal"
+  "${runner[@]}" -- "${exit_programs[@]}"
+  exec "${runner[@]}" -f /abi/plugin/ -- "$suite"
 fi
-ctest --preset "$usage_preset"
+# The Rust platform crate's pure helpers, such as redirect resolution, have
+# unit tests that run on the host before every ctest run.
+cargo test --locked -p mln-ffi-platform --lib
+ctest --preset "$usage_preset" --parallel
 '''
+
+[tasks.coverage]
+description = "Measure the src/ line coverage of the C tests or one binding's tests."
+usage = '''
+arg "[suite]" default="native" help="native for the C tests, or a binding name"
+flag "--preset <preset>" default="macos-arm64-metal-coverage"
+'''
+run = 'python3 scripts/coverage.py "$usage_suite" --preset "$usage_preset"'
+
+[tasks.coverage-diff]
+description = "List src/ lines that one coverage report hits and another misses."
+run = 'python3 scripts/coverage-diff.py "$@"'
+
+[tasks.check-exports]
+description = "Check that an installed native library exports exactly the public C API."
+usage = 'arg "[preset]" default="{{vars.host_native_preset}}"'
+run = 'python3 scripts/check-exports.py "$usage_preset"'
+
+[tasks.check-export-calls]
+description = "Check that the C tests call every exported function by name."
+run = 'python3 scripts/check-export-calls.py "$@"'
 
 [tasks."android-sdk-packages"]
 description = "Install the pinned packages into the selected Android SDK."
@@ -473,3 +521,15 @@ run = 'PYTHONPATH="$MISE_MONOREPO_ROOT/ci${PYTHONPATH:+:$PYTHONPATH}" uv run --n
 [tasks."kotlin:prepare-release"]
 description = "Merge, sign, and publish Kotlin Maven repositories."
 run = 'python3 ci/kotlin_release.py "$@"'
+
+[tasks."bindings:generate"]
+description = "Regenerate native declarations and public binding APIs from C headers."
+run = "uv run --no-sync python -m tools.bindgen generate"
+
+[tasks."bindings:check"]
+description = "Check header contracts and committed generated binding output."
+run = "uv run --no-sync python -m tools.bindgen generate --check --require-complete"
+
+[tasks."bindings:test-generator"]
+description = "Test compiler extraction, contract diagnostics, and language lowering."
+run = "uv run --no-sync python -m unittest discover -s tests/bindgen"
