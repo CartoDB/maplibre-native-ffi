@@ -4,6 +4,7 @@ import kotlin.system.exitProcess
 import org.maplibre.nativeffi.generated.GeneratedApi
 import org.maplibre.nativeffi.generated.LogHandler
 import org.maplibre.nativeffi.generated.RenderBackendFlag
+import org.maplibre.nativeffi.generated.logSetCallback
 
 internal object Main {
   @JvmStatic

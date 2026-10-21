@@ -16,6 +16,7 @@ import org.maplibre.nativeffi.examples.composemap.map.MapLibreNativeSurfaceAdapt
 import org.maplibre.nativeffi.examples.composemap.map.MapLibreSurfaceRenderer
 import org.maplibre.nativeffi.generated.GeneratedApi
 import org.maplibre.nativeffi.generated.LogHandler
+import org.maplibre.nativeffi.generated.logSetCallback
 
 internal object Main {
   @JvmStatic

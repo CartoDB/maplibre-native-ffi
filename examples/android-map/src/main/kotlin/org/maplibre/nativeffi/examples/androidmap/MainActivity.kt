@@ -7,6 +7,7 @@ import android.view.WindowManager
 import org.maplibre.nativeffi.MaplibreAndroid
 import org.maplibre.nativeffi.generated.GeneratedApi
 import org.maplibre.nativeffi.generated.LogHandler
+import org.maplibre.nativeffi.generated.logSetCallback
 
 class MainActivity : Activity() {
   private lateinit var mapView: AndroidMapView
