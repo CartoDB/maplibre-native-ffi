@@ -144,6 +144,17 @@ class ValuePlan:
         return self.element if self.kind == "reference" else self
 
 
+def plain_value(value: ValuePlan) -> bool:
+    """Whether a value is fixed-size data that zeroed storage represents."""
+    if value.kind in {"scalar", "enum"}:
+        return True
+    return (
+        value.kind == "record"
+        and value.default is None
+        and all(plain_value(field.value) for field in value.fields)
+    )
+
+
 # Field roles that hold control state: a struct's size, reserved space, an
 # array's count or stride, a presence mask, a union tag, a
 # callback context, a registration's release callback, and a registration's
@@ -182,6 +193,8 @@ class ParameterPlan:
     name: str
     value: ValuePlan
     direction: str
+    # The input array whose length sizes this caller-allocated output array.
+    sized_by: str | None = None
 
 
 @dataclass(frozen=True)
@@ -644,6 +657,27 @@ class Binder:
             }
             child_name = type_name(pointee)
             if metadata.get("direction") == "out":
+                if pointee.kind != "pointer" and metadata.get("length") not in {
+                    None,
+                    "1",
+                }:
+                    element = self.value(
+                        pointee, child_metadata, context + " output element"
+                    )
+                    # Each emitter decodes the elements after the call from
+                    # zeroed storage, so an element must own nothing, borrow
+                    # nothing, and need no native default.
+                    if not plain_value(element):
+                        raise ModelError(
+                            [
+                                (
+                                    f"{context}: a caller-sized output element "
+                                    "must be a scalar, an enum, or a record of "
+                                    "them without a native default"
+                                )
+                            ]
+                        )
+                    return ValuePlan(kind="array", element=element, **common)
                 if pointee.kind == "pointer" and "length" in metadata:
                     child_metadata["length"] = metadata["length"]
                 element = self.value(pointee, child_metadata, context + " output")
@@ -870,6 +904,18 @@ class Binder:
                 parameter.name,
                 value,
                 direction,
+                next(
+                    (
+                        input_.name
+                        for input_ in function.parameters
+                        if input_.metadata.get("direction", "in") == "in"
+                        and input_.metadata.get("length") == value.length
+                        and input_.type.kind == "pointer"
+                    ),
+                    None,
+                )
+                if direction == "out" and value.kind == "array"
+                else None,
             )
 
             def validate_input_lifetime(item, parameter_name=parameter.name):

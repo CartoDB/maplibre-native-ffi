@@ -17,6 +17,7 @@ from tools.bindgen.emitters import (
     typescript,
     zig,
 )
+from tools.bindgen.model import ModelError
 from tools.bindgen.schema import validate
 
 EMITTERS = (dart, dotnet, go, kotlin, python, rust, swift, typescript, zig)
@@ -47,6 +48,52 @@ class GenerationTests(unittest.TestCase):
         )
         validate(api)
         return api
+
+    def test_caller_sized_outputs_share_the_input_array_count(self):
+        api = parse(groups=("caller_sized_output",))
+        validate(api)
+        bound = compile_api(api)
+        for plan in bound.operations:
+            output = plan.outputs[0]
+            self.assertEqual(output.value.kind, "array")
+            self.assertEqual(output.value.length, "point_count")
+            self.assertEqual(output.sized_by, "points")
+        for emitter in EMITTERS:
+            with self.subTest(emitter=emitter.__name__):
+                self.assertEqual(emitter.coverage(bound)["unsupported"], {})
+                self.rendered(emitter, bound)
+
+    def test_output_array_requires_a_counted_input_array(self):
+        with self.assertRaisesRegex(ModelError, "output array length"):
+            self.parse("""
+mln_status mln_probe_batch(unsigned point_count, double *out_values BIND("direction=out;length=point_count"), mln_diagnostic *out_diagnostic);
+""")
+
+    def test_output_array_cannot_share_its_count_with_two_input_arrays(self):
+        with self.assertRaisesRegex(ModelError, "output array length"):
+            self.parse("""
+mln_status mln_probe_batch(const double *left BIND("length=count"), const double *right BIND("length=count"), unsigned count,
+  double *out_values BIND("direction=out;length=count"), mln_diagnostic *out_diagnostic);
+""")
+
+    def test_output_array_follows_every_input(self):
+        for later in ("unsigned count", "unsigned flag"):
+            counted = "" if later == "unsigned count" else "unsigned count, "
+            with (
+                self.subTest(later=later),
+                self.assertRaisesRegex(ModelError, "follow every input"),
+            ):
+                self.parse(f"""
+mln_status mln_probe_batch(const double *values BIND("length=count"), {counted}
+  double *out_values BIND("direction=out;length=count"), {later}, mln_diagnostic *out_diagnostic);
+""")
+
+    def test_output_array_cannot_take_its_count_from_a_byte_buffer(self):
+        with self.assertRaisesRegex(ModelError, "output array length"):
+            self.parse("""
+mln_status mln_probe_batch(const void *bytes BIND("length=count;encoding=bytes"), unsigned count,
+  double *out_values BIND("direction=out;length=count"), mln_diagnostic *out_diagnostic);
+""")
 
     def test_every_protocol_shape_generates_or_reports_its_gap(self):
         for group in protocol_groups():
