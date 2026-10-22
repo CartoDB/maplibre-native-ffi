@@ -149,6 +149,20 @@ def target_job(row: dict) -> dict:
         suites.append(f"suite-{len(suites) + 1}")
         env = {**(env or {}), **row["environment"].get(command, {})}
         fields = {"env": env} if env else {}
+        # Lavapipe presents Win32 surfaces through GDI, which needs the VM's
+        # interactive desktop. WGL and the binding suites run in service session 0.
+        if preset == "windows-x64-vulkan" and command == f"mise run test {preset}":
+            command = (
+                "./ci/with-windows-console.ps1 "
+                f"-Command @('mise', 'run', 'test', '{preset}')"
+            )
+            fields.update(
+                {
+                    "name": "Run native tests in the Windows desktop session",
+                    "shell": "pwsh",
+                    "timeout-minutes": 15,
+                }
+            )
         steps.append(run(command, id=suites[-1], **{"if": guard()}, **fields))
 
     for command in checks:
