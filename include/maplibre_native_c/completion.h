@@ -57,6 +57,14 @@ typedef struct mln_completion_result {
    * not a command.
    */
   uint64_t generation;
+  /**
+   * Generation of the first map render update that includes the command. A
+   * frame result with disposition MLN_RENDER_RESULT_RENDERED and a
+   * map_update_generation at or past this value was rendered from map state
+   * that includes the command. Inside a command group, this is the update that
+   * the outermost group end publishes. Zero when generation is zero.
+   */
+  uint64_t render_update_generation;
   /** Borrowed diagnostic bytes, empty on success. */
   mln_buffer_view diagnostic;
   /** Borrowed function-specific result, or null when the function has none. */
