@@ -68,6 +68,7 @@ final _library = _Library(DynamicLibrary.open(_libraryPath()));
 String _libraryPath() {
   // The install prefix that `mise run //bindings/dart:test` links. A hardened
   // Dart VM refuses to load a library by relative path.
+  if (Platform.isAndroid) return 'libmln_test_graphics.so';
   if (Platform.isIOS) {
     final app = File(Platform.resolvedExecutable).parent.path;
     return '$app/Frameworks/mln_test_graphics.framework/mln_test_graphics';
