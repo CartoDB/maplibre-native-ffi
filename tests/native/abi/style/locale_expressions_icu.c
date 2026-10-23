@@ -1,8 +1,9 @@
-// Locale-sensitive style expressions on Linux, which evaluate them with the
-// CLDR data that ICU4X compiles into the library: number formatting follows the
-// locale, currency, and fraction limits, and a collator follows the locale, its
-// collation extensions, and the requested sensitivity. The `_linux` suffix
-// builds this file on Linux targets only.
+// Locale-sensitive style expressions on targets that evaluate them with ICU:
+// Linux, with the CLDR data that ICU4X compiles into the library, and
+// OpenHarmony, with the system's ICU4C. Number formatting follows the locale,
+// currency, and fraction limits, and a collator follows the locale, its
+// collation extensions, and the requested sensitivity. The `_icu` suffix builds
+// this file on those targets only.
 
 #include <stdio.h>
 
@@ -30,7 +31,7 @@ static void open_map(locale_map* map) {
     MLN_BUFFER_LITERAL(
       "{\"version\":8,\"sources\":{\"point\":{\"type\":\"geojson\",\"data\":{"
       "\"type\":\"Feature\",\"geometry\":{\"type\":\"Point\",\"coordinates\":"
-      "[0,0]},\"properties\":{\"currency\":\"US\"}}}},\"layers\":[{\"id\":"
+      "[0,0]},\"properties\":{\"currency\":\"US$\"}}}},\"layers\":[{\"id\":"
       "\"point\",\"type\":\"circle\",\"source\":\"point\"}]}"
     )
   );

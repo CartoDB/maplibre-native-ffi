@@ -216,6 +216,7 @@ ci:
       paths:
         - cmake/platform/ohos.cmake
         - mise.ohos.*
+        - src/platform/ohos/*
         - tests/native/abi/platform/transport.c
         - third_party/maplibre-native
     web:
