@@ -305,12 +305,19 @@ class Values:
     def flag_name(self, value, flag):
         return identifier(flag.member)
 
+    def output_only(self, value):
+        """Whether only the library creates [value], so no call or callback answer writes it."""
+        return value.native not in self.writers and not any(
+            value.native in writers for writers in self.split_writers.values()
+        )
+
     def field_default(self, field, record=None):
         if record and record.default:
             return f"{name(record.native)}.default.{identifier(field.name)}"
         return self.default(field.value)
 
     def default(self, value):
+        """A field's default, or None when a caller must give it."""
         if value.nullable or value.optional:
             return "null"
         if value.kind == "scalar":
@@ -320,19 +327,13 @@ class Values:
         if value.kind == "buffer":
             return '""' if value.encoding == "utf8" else "byteArrayOf()"
         if value.kind == "enum":
-            scalar = self.scalar(value)[0]
-            return (
-                name(value.native)
-                + "("
-                + ("0uL" if scalar == "ULong" else "0u" if scalar == "UInt" else "0")
-                + ")"
-                if any(n == 0 for _, n in value.enum_values)
-                else None
-            )
+            constant = zero_constant(value)
+            return f"{name(value.native)}.{constant}" if constant else None
         if value.kind == "record":
             return (
                 name(value.native) + "()"
-                if all(
+                if not self.output_only(value)
+                and all(
                     typ.endswith("?") or self.field_default(field)
                     for _, typ, field in self.members(value)
                 )
@@ -354,6 +355,7 @@ class Values:
                 else []
             ),
             "import org.maplibre.nativeffi.internal.callback.NativeRegistration",
+            "import org.maplibre.nativeffi.internal.values.flagLabel",
             "import org.maplibre.nativeffi.render.NativePointer",
             "",
         ]
@@ -366,20 +368,27 @@ class Values:
                 prefix = enum_member_prefix(
                     (n for n, _ in value.enum_values), value.native
                 )
+                bitmask = value.enum_kind == "bitmask"
                 constants = [
                     f"{doc(self.bound, native, '    ')}    public val {native.removeprefix(prefix)}: {public} = {public}({literal(number, scalar)})"
                     for native, number in value.enum_values
                 ]
+                if bitmask and not any(n == 0 for _, n in value.enum_values):
+                    constants.insert(
+                        0,
+                        f"    /** No flags. */\n    public val NONE: {public} = {public}({literal(0, scalar)})",
+                    )
                 result.extend(
                     [
-                        f"{doc(self.bound, value.native)}public data class {public}(public val rawValue: {scalar}) {{",
+                        f"{enum_doc(self.bound, value)}public data class {public}(public val rawValue: {scalar}) {{",
                         *(
                             [
                                 f"  public infix fun or(other: {public}): {public} = {public}(rawValue or other.rawValue)",
                                 f"  public infix fun and(other: {public}): {public} = {public}(rawValue and other.rawValue)",
                                 f"  public operator fun contains(other: {public}): Boolean = (rawValue and other.rawValue) == other.rawValue",
+                                flag_label(value, prefix),
                             ]
-                            if value.enum_kind == "bitmask"
+                            if bitmask
                             else [enum_label(public, value, prefix, scalar)]
                         ),
                         "  public companion object {",
@@ -415,10 +424,17 @@ class Values:
                 )
             args = []
             typed = []
+            # A record that only the library creates takes every field, so a
+            # field that C appends reaches each caller that fabricates one.
+            required = self.output_only(value)
             for member, typ, field in self.members(value):
                 typed.append((member, typ))
                 default = (
-                    "null" if typ.endswith("?") else self.field_default(field, value)
+                    None
+                    if required
+                    else "null"
+                    if typ.endswith("?")
+                    else self.field_default(field, value)
                 )
                 args.append(
                     doc(self.bound, f"{value.native}.{field.name}", "  ")
@@ -426,7 +442,8 @@ class Values:
                     + (" = " + default if default is not None else "")
                 )
             args.extend(
-                f"{doc(self.bound, flag.name, '  ')}  public val {self.flag_name(value, flag)}: Boolean = false"
+                f"{doc(self.bound, flag.name, '  ')}  public val {self.flag_name(value, flag)}: Boolean"
+                + ("" if required else " = false")
                 for flag in value.mask_flags
             )
             typed.extend(
@@ -976,6 +993,41 @@ class Values:
             + "\n\n".join(functions)
             + "\n"
         )
+
+
+# What every enum and flag set says about values that C adds later.
+ENUM_NOTE = "Later versions may add values; an unknown one keeps its `rawValue`."
+FLAGS_NOTE = (
+    "Later versions may add flags; unknown bits keep their place in `rawValue`."
+)
+
+
+def enum_doc(bound, value):
+    """The KDoc of an enum or flag set, which says that C may add values."""
+    found = bound.doc(value.native)
+    note = FLAGS_NOTE if value.enum_kind == "bitmask" else ENUM_NOTE
+    if found is None:
+        return docs.block_comment(docs.Doc(value.native, note))
+    return docs.block_comment(replace(found, notes=(*found.notes, note)))
+
+
+def zero_constant(value):
+    """The companion constant whose raw value is zero: a C member, or a flag set's `NONE`."""
+    prefix = enum_member_prefix((n for n, _ in value.enum_values), value.native)
+    member = next((n for n, number in value.enum_values if number == 0), None)
+    if member is not None:
+        return member.removeprefix(prefix)
+    return "NONE" if value.enum_kind == "bitmask" else None
+
+
+def flag_label(value, prefix):
+    """A `toString` that names a flag set's single-bit members and keeps unknown bits in hex."""
+    bits = {}
+    for native, number in value.enum_values:
+        if number > 0 and number & (number - 1) == 0:
+            bits.setdefault(number, native.removeprefix(prefix))
+    flags = ", ".join(f'{number}uL to "{label}"' for number, label in bits.items())
+    return f'  override fun toString(): String = flagLabel(rawValue.toULong(), "{zero_constant(value)}", listOf({flags}))'
 
 
 def enum_label(public, value, prefix, scalar):
