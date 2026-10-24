@@ -95,9 +95,7 @@ inline auto configure_transferred_webgl_worker(
     };
   // Detaches where reap_core_worker detaches a default worker.
   session.join_worker = [thread]() {
-    if (
-      pthread_equal(pthread_self(), *thread) != 0 || on_browser_main_thread()
-    ) {
+    if (on_browser_main_thread()) {
       static_cast<void>(pthread_detach(*thread));
       return;
     }
