@@ -116,6 +116,18 @@ def lower_function(
         and p.value.buffer_form != "view"
         and p.value.length not in {None, "1", "nul"}
     }
+    # Caller-sized text passes its storage, capacity, and length to a closure
+    # that the runtime calls again when the text did not fit.
+    text = plan.caller_sized_text
+    text_arguments = (
+        {
+            text.name: "textStorage",
+            text.value.length: "textCapacity",
+            text.result_length: "textLength",
+        }
+        if text
+        else {}
+    )
     attach_output = None
     signature, optional, setup, args, returns = (
         [],
@@ -141,6 +153,12 @@ def lower_function(
             or local == "raw"
         ):
             local += "Value"
+        if parameter.name in text_arguments:
+            if parameter.name == text.name:
+                setup.append("final text = _CallerSizedText();")
+                returns.append(("Uint8List", "text.text"))
+            args.append(text_arguments[parameter.name])
+            continue
         if parameter.name in counts:
             args.append(
                 f"bytes{camel(counts[parameter.name])}.size"
@@ -267,7 +285,18 @@ def lower_function(
             args.append(values.native(value, local))
     if optional:
         signature.append("{" + ", ".join(optional) + "}")
+    if text:
+        # Text that did not fit calls again, so its inputs convert once,
+        # before the first call.
+        for index, parameter in enumerate(function.parameters):
+            if parameter.name in text_arguments or (receiver and index == 0):
+                continue
+            local = "native" + pascal(parameter.name)
+            setup.append(f"final {local} = {args[index]};")
+            args[index] = local
     call = native_call(function, args)
+    if text:
+        call = f"text.call(arena, (textStorage, textCapacity, textLength) => {call})"
     # The receiver roots the callbacks it registers, an adopted owner roots
     # those of its call, and the isolate roots a global call's.
     roots = (

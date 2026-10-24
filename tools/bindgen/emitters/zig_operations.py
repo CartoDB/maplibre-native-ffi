@@ -120,6 +120,19 @@ def operation(plan, values, *, discard=False):
         and v.length != "nul"
         and not v.length.isdigit()
     }
+    # Caller-sized text marks its storage, capacity, and length, which the
+    # call fills in and passes again with enough storage when the text did
+    # not fit.
+    text = plan.caller_sized_text
+    text_markers = (
+        {
+            text.name: "call.text()",
+            text.value.length: "call.textCapacity()",
+            text.result_length: "call.textLength()",
+        }
+        if text
+        else {}
+    )
     signature, arguments, results = [], [], []
     needs_allocator = False
     completion = plan.completion
@@ -127,6 +140,14 @@ def operation(plan, values, *, discard=False):
         name = parameter.name
         local = names[name]
         if completion and name == completion.parameter:
+            continue
+        if name in text_markers:
+            if name == text.name:
+                needs_allocator = True
+                results.append(
+                    (identifier(output_member(name)), "OwnedValue([]const u8)")
+                )
+            arguments.append(text_markers[name])
             continue
         if name in length_sources:
             source = names[length_sources[name]]

@@ -132,12 +132,26 @@ def operation(
         and value.length != "nul"
         and not value.length.isdigit()
     }
+    # Caller-sized text passes its storage, capacity, and length to a closure
+    # that the runtime calls again when the text did not fit.
+    text = plan.caller_sized_text
+    text_arguments = (
+        {
+            text.name: "bindingTextStorage",
+            text.value.length: "bindingTextCapacity",
+            text.result_length: "bindingTextLength",
+        }
+        if text
+        else {}
+    )
     output_names = {parameter.name for parameter in plan.outputs}
     for parameter_index, param in enumerate(params):
         local = f"bindingArg{parameter_index}"
         label = identifier(camel(param.name)) + " " + local
         value_plan = input_plans.get(param.name)
-        if param.name in lengths:
+        if param.name in text_arguments:
+            arguments.append(text_arguments[param.name])
+        elif param.name in lengths:
             arguments.append(f"try NativeInputArena.count({lengths[param.name]})")
         elif param.name in output_names:
             outputs.append(param)
@@ -194,6 +208,14 @@ def operation(
             raise unsupported(
                 function, f"parameter {param.name}: unsupported {native(param.type)}"
             )
+    # Text that did not fit calls again, so its inputs convert once, before
+    # the first call.
+    hoisted = []
+    if text:
+        for index, argument in enumerate(arguments):
+            if argument not in text_arguments.values():
+                hoisted.append(f"let bindingInput{index} = {argument}")
+                arguments[index] = f"bindingInput{index}"
     method = camel(plan.member)
     if method in {"close", "deinit"}:
         raise unsupported(function, "method name is reserved by the handle runtime")
@@ -384,6 +406,14 @@ def operation(
             )
         output_plans = {parameter.name: parameter.value for parameter in plan.outputs}
         capture, storage, types = [], [], []
+        if text:
+            storage.append("  var bindingText = Data()")
+            types.append("Data")
+            capture.append("bindingText")
+            fit = f"NativeString.callerSized(&bindingText) {{ bindingTextStorage, bindingTextCapacity, bindingTextLength in {call} }}"
+            call = "\n".join(
+                [*hoisted, f"return {'try ' if 'try ' in call else ''}{fit}"]
+            )
         for index, output in enumerate(outputs):
             value = output_plans[output.name]
             output_plan = next(p for p in plan.outputs if p.name == output.name)
@@ -462,7 +492,7 @@ def operation(
         invoke = (
             f"nativeInvoke({target}{absent}) {{ raw, arena, diagnostic in {call} }}"
         )
-        if not outputs:
+        if not types:
             return (
                 f"""{doc_comment}{signature} throws {{
   try {invoke}
