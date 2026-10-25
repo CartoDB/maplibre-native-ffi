@@ -225,7 +225,7 @@ void main() {
           animation: AnimationOptions(
             durationMs: 60000,
             transitionId: maximum,
-            endHandler: CameraTransitionHandler(callback: ended.complete),
+            endHandler: ended.complete,
           ),
         ),
       ),
@@ -290,6 +290,12 @@ void main() {
     final filtered = RenderedFeatureQueryOptions(filter: ['has', 'name']);
     expect(filtered.copyWith().filter, ['has', 'name']);
     expect(filtered.copyWith(filter: null).filter, isNull);
+
+    // So is an optional callback's: it disables the callback.
+    void ended(CameraTransitionEnd _) {}
+    final animated = AnimationOptions(endHandler: ended);
+    expect(animated.copyWith().endHandler, ended);
+    expect(animated.copyWith(endHandler: null).endHandler, isNull);
   });
 
   test('values and flag sets describe their members', () {
