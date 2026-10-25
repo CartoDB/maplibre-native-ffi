@@ -1110,10 +1110,16 @@ auto driver_work_runnable_locked(
 
 // Wakes the driver when it can take work. Work queued behind a pending driver
 // result wakes nothing until resume_driver_work() reports the result ready.
+// A frame that the frames in flight hold back wakes a caller driver once,
+// since only a service asks the backend to report their end.
 auto publish_driver_work_locked(
   mln_render_session_object& session, DeferredWakes& wakes
 ) noexcept -> void {
-  if (!driver_work_runnable_locked(session)) return;
+  if (
+    !driver_work_runnable_locked(session) &&
+    (!frame_waits_for_gpu_locked(session) || session.texture.gpu_wait_pending)
+  )
+    return;
   if (session.capabilities.driver == MLN_RENDER_DRIVER_CORE_WORKER) {
     session.worker_condition.notify_one();
   } else if (session.driver_wake != nullptr && !session.driver_wake_pending) {
@@ -1191,6 +1197,51 @@ auto requeue_update_waiting_demands_locked(mln_render_session_object& session)
   return count;
 }
 
+// Submits the demand that renders the map's pending still image, unless the
+// session cannot render now, or already rendered a frame that completes the
+// image and the map has yet to say so. While a demand submitted for that image
+// is outstanding, its result submits the next instead. Called wherever the
+// session can render again: the request itself, attachment, a barrier's
+// completion, and wherever waiting demands resume. A demand that cannot be
+// allocated leaves the image for the next of those.
+auto arm_still_image_demand_locked(
+  mln_render_session_object& session, DeferredWakes& wakes
+) noexcept -> void {
+  if (
+    session.state != MLN_RENDER_SESSION_STATE_ATTACHED ||
+    session.pending_frame_barriers != 0 ||
+    every_slot_quarantined_locked(session)
+  )
+    return;
+  const auto image = map_still_image_generation(*session.map_object);
+  if (image == 0 || session.rendered_update_generation >= image) return;
+  if (
+    session.still_image_demands != 0 &&
+    session.still_image_demand_generation == image
+  ) {
+    session.still_image_rearm = true;
+    return;
+  }
+  try {
+    session.demands.push_back(
+      std::make_shared<const mln_frame_demand>(mln_frame_demand{
+        .size = sizeof(mln_frame_demand),
+        .flags = MLN_FRAME_DEMAND_IF_NEEDED | MLN_FRAME_DEMAND_PRESENT |
+                 MLN_FRAME_DEMAND_WAIT_FOR_UPDATE,
+        .token = MLN_FRAME_DEMAND_TOKEN_STILL_IMAGE,
+      })
+    );
+  } catch (...) {
+    return;
+  }
+  if (!queue_frame_demand_work_locked(session, wakes, session.demands.back())) {
+    session.demands.pop_back();
+    return;
+  }
+  ++session.still_image_demands;
+  session.still_image_demand_generation = image;
+}
+
 // Runs every demand that waits for a map update again. Called wherever an
 // if-needed demand can become renderable without a newer map update reaching
 // it first: the update itself, a target replacement, and an applied resize.
@@ -1202,7 +1253,14 @@ auto resume_update_waiting_demands_locked(
     if (!queue_frame_demand_work_locked(session, wakes, session.demands[index]))
       return;
   }
+  arm_still_image_demand_locked(session, wakes);
 }
+
+// Publishes `disposition` for a demand that ends without starting.
+auto finish_demand_locked(
+  mln_render_session_object& session, const mln_frame_demand& pending,
+  mln_render_result disposition, DeferredWakes& wakes
+) noexcept -> void;
 
 // Gives every demand that waits for a map update the terminal `disposition`,
 // in acceptance order.
@@ -1648,8 +1706,8 @@ auto start_attach_render_session(
   }
   session->attached = true;
   // Every step from here can fail or throw after the map's session slot is
-  // claimed. Unless the attachment commits, this returns the map, the publish
-  // hook, and the handle, so the map never keeps a dangling session pointer.
+  // claimed. Unless the attachment commits, this returns the map, the
+  // notices, and the handle, so the map never keeps a dangling session pointer.
   struct AttachUnwind {
     std::shared_ptr<mln_render_session_object> session;
     bool committed = false;
@@ -1661,9 +1719,7 @@ auto start_attach_render_session(
         session->worker_condition.notify_all();
       }
       reap_core_worker(*session);
-      static_cast<void>(
-        map_set_render_session_publish_callback(session->map, {})
-      );
+      static_cast<void>(map_set_render_session_notices(session->map, {}));
       static_cast<void>(
         map_detach_render_target_session(session->map, session.get())
       );
@@ -1678,15 +1734,25 @@ auto start_attach_render_session(
 
   session->self = register_render_session(session);
   const auto weak_session = std::weak_ptr<mln_render_session_object>{session};
-  const auto publish_status = map_set_render_session_publish_callback(
-    session->map, [weak_session](uint64_t update_generation) noexcept {
-      if (const auto live = weak_session.lock()) {
-        notify_render_session_map_update(live.get(), update_generation);
-      }
+  const auto notices_status = map_set_render_session_notices(
+    session->map,
+    RenderSessionNotices{
+      .update =
+        [weak_session](uint64_t update_generation) noexcept {
+          if (const auto live = weak_session.lock()) {
+            notify_render_session_map_update(live.get(), update_generation);
+          }
+        },
+      .still_image =
+        [weak_session]() noexcept {
+          if (const auto live = weak_session.lock()) {
+            notify_render_session_still_image(live.get());
+          }
+        },
     }
   );
-  if (publish_status != MLN_STATUS_OK) {
-    return publish_status;
+  if (notices_status != MLN_STATUS_OK) {
+    return notices_status;
   }
   if (options->driver == MLN_RENDER_DRIVER_CORE_WORKER) {
     if (session->start_worker) {
@@ -1725,9 +1791,11 @@ auto start_attach_render_session(
           const auto prime = mln::gfx::BackendScope{*backend};
         }
         {
+          auto wakes = DeferredWakes{};
           const auto lock = std::scoped_lock{session->control_mutex};
           session->state = MLN_RENDER_SESSION_STATE_ATTACHED;
           ++session->generation;
+          arm_still_image_demand_locked(*session, wakes);
         }
         // Wake the driver whenever a worker thread posts a scheduler
         // task while the queue is idle, so queued results are delivered
@@ -1826,6 +1894,30 @@ auto notify_render_session_map_update(
   // Queueing work publishes it to the driver. A demand parked by a full ring
   // keeps no work item, and an update frees no slot, so it needs no wake here.
   resume_update_waiting_demands_locked(*session, wakes);
+}
+
+auto notify_render_session_still_image(
+  mln_render_session_object* session
+) noexcept -> void {
+  if (session == nullptr) return;
+  auto wakes = DeferredWakes{};
+  const auto lock = std::scoped_lock{session->control_mutex};
+  if (session->state != MLN_RENDER_SESSION_STATE_ATTACHED) return;
+  if (map_still_image_generation(*session->map_object) != 0) {
+    arm_still_image_demand_locked(*session, wakes);
+    return;
+  }
+  // Another frame completed the image, or the map closed, so a still-image
+  // demand that waits for an update would wait for nothing.
+  auto& waiting = session->update_waiting_demands;
+  for (auto entry = waiting.begin(); entry != waiting.end();) {
+    if ((*entry)->token != MLN_FRAME_DEMAND_TOKEN_STILL_IMAGE) {
+      ++entry;
+      continue;
+    }
+    finish_demand_locked(*session, **entry, MLN_RENDER_RESULT_NO_UPDATE, wakes);
+    entry = waiting.erase(entry);
+  }
 }
 
 auto validate_render_session(
@@ -2634,6 +2726,11 @@ auto publish_frame_result_locked(
   result.size = sizeof(mln_render_frame_result);
   if (result.disposition != MLN_RENDER_RESULT_RENDERED)
     result.generation = session.generation;
+  if (
+    result.token == MLN_FRAME_DEMAND_TOKEN_STILL_IMAGE &&
+    session.still_image_demands != 0
+  )
+    --session.still_image_demands;
   session.frame_results.push_back(result);
   if (session.frame_wake && !session.frame_wake_pending) {
     session.frame_wake_pending = true;
@@ -2689,6 +2786,11 @@ auto publish_frame_result(
     auto wakes = DeferredWakes{};
     const auto lock = std::scoped_lock{session->control_mutex};
     publish_frame_result_locked(*session, result, wakes);
+    if (
+      result.token == MLN_FRAME_DEMAND_TOKEN_STILL_IMAGE &&
+      std::exchange(session->still_image_rearm, false)
+    )
+      arm_still_image_demand_locked(*session, wakes);
   }
   mln::testing::hit(mln::testing::SyncPoint::RenderFrameResultPublished);
 }
@@ -2775,6 +2877,13 @@ auto wait_for_map_update(
     result.disposition = MLN_RENDER_RESULT_NO_UPDATE;
     return true;
   }
+  // A still image's demand waits only while its image does, and the map's
+  // notice ends a wait that outlasts the image.
+  if (
+    pending->token == MLN_FRAME_DEMAND_TOKEN_STILL_IMAGE &&
+    map_still_image_generation(*session->map_object) == 0
+  )
+    return true;
   // Waiting and queueing allocate. A demand that can do neither finishes as it
   // found the map.
   try {
@@ -2866,6 +2975,9 @@ auto run_frame_demand(
       return;
     demand = session->demands.front();
     session->demands.pop_front();
+    // Only what arrives while this attempt runs asks for another.
+    if (demand->token == MLN_FRAME_DEMAND_TOKEN_STILL_IMAGE)
+      session->still_image_rearm = false;
   }
   auto selected_slot = std::optional<std::size_t>{};
   struct RenderingSlotGuard {
@@ -3114,6 +3226,8 @@ auto run_frame_demand(
     !wait_for_map_update(session, demand, rendered_map_generation, result)
   )
     return;
+  if (result.disposition == MLN_RENDER_RESULT_RENDERED)
+    mln::testing::hit(mln::testing::SyncPoint::RenderFrameRendered);
   publish_frame_result(session, result);
 }
 }  // namespace
@@ -3188,6 +3302,10 @@ auto render_session_request_frame(
     );
     return MLN_STATUS_INVALID_ARGUMENT;
   }
+  if (demand->token == MLN_FRAME_DEMAND_TOKEN_STILL_IMAGE) {
+    set_thread_error("the frame demand token is reserved for still images");
+    return MLN_STATUS_INVALID_ARGUMENT;
+  }
   const auto live = lease_render_session(session);
   if (live == nullptr) return recorded_handle_fault_status();
   auto wakes = DeferredWakes{};
@@ -3203,7 +3321,8 @@ auto render_session_request_frame(
   const auto supersedes =
     [&](const std::shared_ptr<const mln_frame_demand>& pending) {
       return (demand->flags & MLN_FRAME_DEMAND_IF_NEEDED) != 0 &&
-             pending->flags == demand->flags;
+             pending->flags == demand->flags &&
+             pending->token != MLN_FRAME_DEMAND_TOKEN_STILL_IMAGE;
     };
   const auto supersede =
     [&](const std::shared_ptr<const mln_frame_demand>& pending) {
@@ -3939,8 +4058,10 @@ auto render_session_barrier_start(
     auto work = RenderDriverWork{
       [live, operation = async.operation]() {
         {
+          auto wakes = DeferredWakes{};
           const auto lock = std::scoped_lock{live->control_mutex};
           --live->pending_frame_barriers;
+          arm_still_image_demand_locked(*live, wakes);
         }
         operation->complete(MLN_STATUS_OK, {}, {});
       },
@@ -4006,7 +4127,7 @@ namespace {
 // Disposal drops their results because the host no longer drains them.
 auto finish_detach(const std::shared_ptr<mln_render_session_object>& live)
   -> mln_status {
-  static_cast<void>(map_set_render_session_publish_callback(live->map, {}));
+  static_cast<void>(map_set_render_session_notices(live->map, {}));
   const auto detach_status = render_session_detach(*live);
   {
     auto wakes = DeferredWakes{};
@@ -4282,7 +4403,7 @@ auto abandon_render_session(
     live->worker_condition.notify_all();
   }
   close_wakes(frame_wake, driver_wake);
-  static_cast<void>(map_set_render_session_publish_callback(live->map, {}));
+  static_cast<void>(map_set_render_session_notices(live->map, {}));
   for (auto& item : discarded) {
     if (item.abandon) item.abandon();
   }

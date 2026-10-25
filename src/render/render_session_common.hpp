@@ -812,6 +812,16 @@ struct mln_render_session_object
   std::deque<std::shared_ptr<const mln_frame_demand>> demands;
   // Waiting demands hold no work item until an update or target change.
   std::deque<std::shared_ptr<const mln_frame_demand>> update_waiting_demands;
+  // Still-image demands that are queued, parked, running, or waiting, each
+  // until its result, and the still image's update generation that the newest
+  // was submitted for. A request can arrive before the previous request's
+  // demand ends, so two can be outstanding.
+  std::size_t still_image_demands = 0;
+  uint64_t still_image_demand_generation = 0;
+  // Something that would submit a still-image demand, such as a map update,
+  // found the image's demand still running. The demand's result submits the
+  // next one, so a demand that fails meanwhile leaves the image a retry.
+  bool still_image_rearm = false;
   std::deque<mln::core::RenderDriverWork> driver_work;
   std::condition_variable worker_condition;
   mln::core::WorkerThread worker;
@@ -925,6 +935,11 @@ auto start_attach_render_session(
 // update of `update_generation`.
 auto notify_render_session_map_update(
   mln_render_session_object* session, uint64_t update_generation
+) noexcept -> void;
+// Called on the runtime worker when the attached map's still image becomes
+// pending or stops being pending.
+auto notify_render_session_still_image(
+  mln_render_session_object* session
 ) noexcept -> void;
 
 auto register_render_session(std::shared_ptr<mln_render_session_object> session)
