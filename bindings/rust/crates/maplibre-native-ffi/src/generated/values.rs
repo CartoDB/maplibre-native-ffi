@@ -35,6 +35,7 @@ pub struct AnimationOptions {
 }
 impl Default for AnimationOptions {
     fn default() -> Self {
+        maplibre_core::require_abi_version();
         convert::native_default(unsafe { sys::mln_animation_options_default() })
     }
 }
@@ -106,6 +107,7 @@ pub struct BoundOptions {
 }
 impl Default for BoundOptions {
     fn default() -> Self {
+        maplibre_core::require_abi_version();
         convert::native_default(unsafe { sys::mln_bound_options_default() })
     }
 }
@@ -197,6 +199,7 @@ pub struct CameraDelta {
 }
 impl Default for CameraDelta {
     fn default() -> Self {
+        maplibre_core::require_abi_version();
         convert::native_default(unsafe { sys::mln_camera_delta_default() })
     }
 }
@@ -260,6 +263,7 @@ pub struct CameraFitOptions {
 }
 impl Default for CameraFitOptions {
     fn default() -> Self {
+        maplibre_core::require_abi_version();
         convert::native_default(unsafe { sys::mln_camera_fit_options_default() })
     }
 }
@@ -314,6 +318,7 @@ pub struct CameraOptions {
 }
 impl Default for CameraOptions {
     fn default() -> Self {
+        maplibre_core::require_abi_version();
         convert::native_default(unsafe { sys::mln_camera_options_default() })
     }
 }
@@ -520,6 +525,7 @@ pub struct CameraUpdate {
 }
 impl Default for CameraUpdate {
     fn default() -> Self {
+        maplibre_core::require_abi_version();
         convert::native_default(unsafe { sys::mln_camera_update_default() })
     }
 }
@@ -652,6 +658,7 @@ pub struct CustomGeometrySourceOptions {
 }
 impl Default for CustomGeometrySourceOptions {
     fn default() -> Self {
+        maplibre_core::require_abi_version();
         convert::native_default(unsafe { sys::mln_custom_geometry_source_options_default() })
     }
 }
@@ -796,6 +803,7 @@ pub struct CustomMvtVectorSourceOptions {
 }
 impl Default for CustomMvtVectorSourceOptions {
     fn default() -> Self {
+        maplibre_core::require_abi_version();
         convert::native_default(unsafe { sys::mln_custom_mvt_vector_source_options_default() })
     }
 }
@@ -1060,6 +1068,7 @@ pub struct FrameDemand {
 }
 impl Default for FrameDemand {
     fn default() -> Self {
+        maplibre_core::require_abi_version();
         convert::native_default(unsafe { sys::mln_frame_demand_default() })
     }
 }
@@ -1120,6 +1129,7 @@ pub struct FreeCameraOptions {
 }
 impl Default for FreeCameraOptions {
     fn default() -> Self {
+        maplibre_core::require_abi_version();
         convert::native_default(unsafe { sys::mln_free_camera_options_default() })
     }
 }
@@ -1196,6 +1206,7 @@ pub struct GeojsonSourceOptions {
 }
 impl Default for GeojsonSourceOptions {
     fn default() -> Self {
+        maplibre_core::require_abi_version();
         convert::native_default(unsafe { sys::mln_geojson_source_options_default() })
     }
 }
@@ -1326,6 +1337,7 @@ pub struct GpuSync {
 }
 impl Default for GpuSync {
     fn default() -> Self {
+        maplibre_core::require_abi_version();
         convert::native_default(unsafe { sys::mln_gpu_sync_default() })
     }
 }
@@ -1412,6 +1424,7 @@ pub struct HttpHeaderRule {
 }
 impl Default for HttpHeaderRule {
     fn default() -> Self {
+        maplibre_core::require_abi_version();
         convert::native_default(unsafe { sys::mln_http_header_rule_default() })
     }
 }
@@ -1840,6 +1853,7 @@ pub struct LogicalExtent {
 }
 impl Default for LogicalExtent {
     fn default() -> Self {
+        maplibre_core::require_abi_version();
         convert::native_default(unsafe { sys::mln_logical_extent_default() })
     }
 }
@@ -1928,6 +1942,7 @@ pub struct MapOptions {
 }
 impl Default for MapOptions {
     fn default() -> Self {
+        maplibre_core::require_abi_version();
         convert::native_default(unsafe { sys::mln_map_options_default() })
     }
 }
@@ -2018,6 +2033,7 @@ pub struct MapTileOptions {
 }
 impl Default for MapTileOptions {
     fn default() -> Self {
+        maplibre_core::require_abi_version();
         convert::native_default(unsafe { sys::mln_map_tile_options_default() })
     }
 }
@@ -2133,6 +2149,7 @@ pub struct MapViewportOptions {
 }
 impl Default for MapViewportOptions {
     fn default() -> Self {
+        maplibre_core::require_abi_version();
         convert::native_default(unsafe { sys::mln_map_viewport_options_default() })
     }
 }
@@ -2235,6 +2252,7 @@ pub struct MetalBorrowedTextureDescriptor {
 }
 impl Default for MetalBorrowedTextureDescriptor {
     fn default() -> Self {
+        maplibre_core::require_abi_version();
         convert::native_default(unsafe { sys::mln_metal_borrowed_texture_descriptor_default() })
     }
 }
@@ -2305,6 +2323,7 @@ pub struct MetalOwnedTextureDescriptor {
 }
 impl Default for MetalOwnedTextureDescriptor {
     fn default() -> Self {
+        maplibre_core::require_abi_version();
         convert::native_default(unsafe { sys::mln_metal_owned_texture_descriptor_default() })
     }
 }
@@ -2345,6 +2364,7 @@ pub struct MetalSurfaceDescriptor {
 }
 impl Default for MetalSurfaceDescriptor {
     fn default() -> Self {
+        maplibre_core::require_abi_version();
         convert::native_default(unsafe { sys::mln_metal_surface_descriptor_default() })
     }
 }
@@ -2729,6 +2749,7 @@ pub struct OpenglBorrowedTextureDescriptor {
 }
 impl Default for OpenglBorrowedTextureDescriptor {
     fn default() -> Self {
+        maplibre_core::require_abi_version();
         convert::native_default(unsafe { sys::mln_opengl_borrowed_texture_descriptor_default() })
     }
 }
@@ -2907,6 +2928,7 @@ pub struct OpenglOwnedTextureDescriptor {
 }
 impl Default for OpenglOwnedTextureDescriptor {
     fn default() -> Self {
+        maplibre_core::require_abi_version();
         convert::native_default(unsafe { sys::mln_opengl_owned_texture_descriptor_default() })
     }
 }
@@ -2950,6 +2972,7 @@ pub struct OpenglSurfaceDescriptor {
 }
 impl Default for OpenglSurfaceDescriptor {
     fn default() -> Self {
+        maplibre_core::require_abi_version();
         convert::native_default(unsafe { sys::mln_opengl_surface_descriptor_default() })
     }
 }
@@ -3039,6 +3062,7 @@ pub struct PremultipliedRgba8Image {
 }
 impl Default for PremultipliedRgba8Image {
     fn default() -> Self {
+        maplibre_core::require_abi_version();
         convert::native_default(unsafe { sys::mln_premultiplied_rgba8_image_default() })
     }
 }
@@ -3114,6 +3138,7 @@ pub struct ProjectionMode {
 }
 impl Default for ProjectionMode {
     fn default() -> Self {
+        maplibre_core::require_abi_version();
         convert::native_default(unsafe { sys::mln_projection_mode_default() })
     }
 }
@@ -3465,6 +3490,7 @@ pub struct RenderSessionAttachOptions {
 }
 impl Default for RenderSessionAttachOptions {
     fn default() -> Self {
+        maplibre_core::require_abi_version();
         convert::native_default(unsafe { sys::mln_render_session_attach_options_default() })
     }
 }
@@ -3642,6 +3668,7 @@ pub struct RenderedFeatureQueryOptions {
 }
 impl Default for RenderedFeatureQueryOptions {
     fn default() -> Self {
+        maplibre_core::require_abi_version();
         convert::native_default(unsafe { sys::mln_rendered_feature_query_options_default() })
     }
 }
@@ -4130,6 +4157,7 @@ pub struct ResourceRoute {
 }
 impl Default for ResourceRoute {
     fn default() -> Self {
+        maplibre_core::require_abi_version();
         convert::native_default(unsafe { sys::mln_resource_route_default() })
     }
 }
@@ -4608,6 +4636,7 @@ pub struct RuntimeOptions {
 }
 impl Default for RuntimeOptions {
     fn default() -> Self {
+        maplibre_core::require_abi_version();
         convert::native_default(unsafe { sys::mln_runtime_options_default() })
     }
 }
@@ -4737,6 +4766,7 @@ pub struct SourceFeatureQueryOptions {
 }
 impl Default for SourceFeatureQueryOptions {
     fn default() -> Self {
+        maplibre_core::require_abi_version();
         convert::native_default(unsafe { sys::mln_source_feature_query_options_default() })
     }
 }
@@ -4845,6 +4875,7 @@ pub struct StyleExpressionInputs {
 }
 impl Default for StyleExpressionInputs {
     fn default() -> Self {
+        maplibre_core::require_abi_version();
         convert::native_default(unsafe { sys::mln_style_expression_inputs_default() })
     }
 }
@@ -4945,6 +4976,7 @@ pub struct StyleExpressionOptions {
 }
 impl Default for StyleExpressionOptions {
     fn default() -> Self {
+        maplibre_core::require_abi_version();
         convert::native_default(unsafe { sys::mln_style_expression_options_default() })
     }
 }
@@ -5115,6 +5147,7 @@ pub struct StyleImageOptions {
 }
 impl Default for StyleImageOptions {
     fn default() -> Self {
+        maplibre_core::require_abi_version();
         convert::native_default(unsafe { sys::mln_style_image_options_default() })
     }
 }
@@ -5426,6 +5459,7 @@ pub struct StyleTransitionOptions {
 }
 impl Default for StyleTransitionOptions {
     fn default() -> Self {
+        maplibre_core::require_abi_version();
         convert::native_default(unsafe { sys::mln_style_transition_options_default() })
     }
 }
@@ -5752,6 +5786,7 @@ pub struct VulkanBorrowedTextureDescriptor {
 }
 impl Default for VulkanBorrowedTextureDescriptor {
     fn default() -> Self {
+        maplibre_core::require_abi_version();
         convert::native_default(unsafe { sys::mln_vulkan_borrowed_texture_descriptor_default() })
     }
 }
@@ -5854,6 +5889,7 @@ pub struct VulkanOwnedTextureDescriptor {
 }
 impl Default for VulkanOwnedTextureDescriptor {
     fn default() -> Self {
+        maplibre_core::require_abi_version();
         convert::native_default(unsafe { sys::mln_vulkan_owned_texture_descriptor_default() })
     }
 }
@@ -5897,6 +5933,7 @@ pub struct VulkanSurfaceDescriptor {
 }
 impl Default for VulkanSurfaceDescriptor {
     fn default() -> Self {
+        maplibre_core::require_abi_version();
         convert::native_default(unsafe { sys::mln_vulkan_surface_descriptor_default() })
     }
 }
@@ -6132,6 +6169,7 @@ pub struct WebgpuBorrowedTextureDescriptor {
 }
 impl Default for WebgpuBorrowedTextureDescriptor {
     fn default() -> Self {
+        maplibre_core::require_abi_version();
         convert::native_default(unsafe { sys::mln_webgpu_borrowed_texture_descriptor_default() })
     }
 }
@@ -6213,6 +6251,7 @@ pub struct WebgpuOwnedTextureDescriptor {
 }
 impl Default for WebgpuOwnedTextureDescriptor {
     fn default() -> Self {
+        maplibre_core::require_abi_version();
         convert::native_default(unsafe { sys::mln_webgpu_owned_texture_descriptor_default() })
     }
 }
@@ -6259,6 +6298,7 @@ pub struct WebgpuSurfaceDescriptor {
 }
 impl Default for WebgpuSurfaceDescriptor {
     fn default() -> Self {
+        maplibre_core::require_abi_version();
         convert::native_default(unsafe { sys::mln_webgpu_surface_descriptor_default() })
     }
 }
