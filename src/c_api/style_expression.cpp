@@ -9,12 +9,12 @@
 
 auto mln_style_expression_options_default(void) noexcept
   -> mln_style_expression_options {
-  return mln::core::style_expression_options_default();
+  return mln::c_api::sized<mln_style_expression_options>();
 }
 
 auto mln_style_expression_inputs_default(void) noexcept
   -> mln_style_expression_inputs {
-  return mln::core::style_expression_inputs_default();
+  return mln::c_api::sized<mln_style_expression_inputs>();
 }
 
 auto mln_style_expression_create(

@@ -1991,7 +1991,10 @@ Pointer<raw.mln_map_options> _writeMapOptions(
   ).ref;
   result.ref.map_mode = value.mapMode.rawValue;
   result.ref.fast_pfor_enabled = value.fastPforEnabled;
-  result.ref.event_mask = value.eventMask.rawValue;
+  if (value.eventMask != null) {
+    result.ref.fields |= raw.MLN_MAP_OPTION_EVENT_MASK;
+    result.ref.event_mask = value.eventMask!.rawValue;
+  }
   return result;
 }
 
@@ -1999,7 +2002,9 @@ MapOptions _readMapOptions(raw.mln_map_options source) => MapOptions(
   initialExtent: _readLogicalExtent(source.initial_extent),
   mapMode: MapMode.fromRawValue(source.map_mode),
   fastPforEnabled: source.fast_pfor_enabled,
-  eventMask: RuntimeEventFlag.fromRawValue(source.event_mask),
+  eventMask: (source.fields & raw.MLN_MAP_OPTION_EVENT_MASK) != 0
+      ? RuntimeEventFlag.fromRawValue(source.event_mask)
+      : null,
 );
 
 Pointer<raw.mln_style_image_options> _writeStyleImageOptions(
@@ -3067,7 +3072,7 @@ final _resultTextureReadbackResult = _CompletionValue(
   ),
 );
 
-/// Returns empty animation options initialized for this C API version.
+/// Returns zeroed animation options.
 ///
 /// See `mln_animation_options_default` in the
 /// [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/camera_8h.html).
@@ -3077,7 +3082,7 @@ AnimationOptions animationOptionsDefault() {
   return _readAnimationOptions(nativeResult);
 }
 
-/// Returns empty map bound options initialized for this C API version.
+/// Returns zeroed map bound options with size set for this C API version.
 ///
 /// See `mln_bound_options_default` in the
 /// [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/camera_8h.html).
@@ -3098,7 +3103,7 @@ int cVersion() {
   return nativeResult;
 }
 
-/// Returns an empty relative camera update initialized for this API version.
+/// Returns a zeroed relative camera update with size set for this version.
 ///
 /// See `mln_camera_delta_default` in the
 /// [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/camera_8h.html).
@@ -3108,7 +3113,7 @@ CameraDelta cameraDeltaDefault() {
   return _readCameraDelta(nativeResult);
 }
 
-/// Returns empty camera fitting options initialized for this C API version.
+/// Returns zeroed camera fitting options with size set for this version.
 ///
 /// See `mln_camera_fit_options_default` in the
 /// [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/camera_8h.html).
@@ -3118,7 +3123,7 @@ CameraFitOptions cameraFitOptionsDefault() {
   return _readCameraFitOptions(nativeResult);
 }
 
-/// Returns empty camera options initialized for this C API version.
+/// Returns zeroed camera options with size set for this C API version.
 ///
 /// See `mln_camera_options_default` in the
 /// [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/camera_8h.html).
@@ -3128,7 +3133,8 @@ CameraOptions cameraOptionsDefault() {
   return _readCameraOptions(nativeResult);
 }
 
-/// Returns an empty atomic camera update initialized for this API version.
+/// Returns a zeroed atomic camera update, with its size and its camera's size
+/// set for this C API version.
 ///
 /// See `mln_camera_update_default` in the
 /// [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/camera_8h.html).
@@ -3138,7 +3144,7 @@ CameraUpdate cameraUpdateDefault() {
   return _readCameraUpdate(nativeResult);
 }
 
-/// Returns default custom geometry source options.
+/// Returns zeroed custom geometry source options with size set.
 ///
 /// See `mln_custom_geometry_source_options_default` in the
 /// [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/style_8h.html).
@@ -3150,7 +3156,7 @@ CustomGeometrySourceOptions customGeometrySourceOptionsDefault(
   return _readCustomGeometrySourceOptions(nativeResult, fetchTile);
 }
 
-/// Returns default custom MVT vector source options.
+/// Returns zeroed custom MVT vector source options with size set.
 ///
 /// See `mln_custom_mvt_vector_source_options_default` in the
 /// [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/style_8h.html).
@@ -3162,7 +3168,8 @@ CustomMvtVectorSourceOptions customMvtVectorSourceOptionsDefault(
   return _readCustomMvtVectorSourceOptions(nativeResult, fetchTile);
 }
 
-/// Returns a zero-token, render-if-needed, nonpresenting frame demand.
+/// Returns a zeroed frame demand with size set for this C API version: a
+/// zero-token, render-if-needed, nonpresenting demand.
 ///
 /// See `mln_frame_demand_default` in the
 /// [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/render__session_8h.html).
@@ -3172,7 +3179,7 @@ FrameDemand frameDemandDefault() {
   return _readFrameDemand(nativeResult);
 }
 
-/// Returns empty free camera options initialized for this C API version.
+/// Returns zeroed free camera options with size set for this C API version.
 ///
 /// See `mln_free_camera_options_default` in the
 /// [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/camera_8h.html).
@@ -3209,7 +3216,7 @@ GeojsonSourceDataHandle geojsonSourceDataCreate(
   );
 });
 
-/// Returns default GeoJSON source options.
+/// Returns zeroed GeoJSON source options with size set.
 ///
 /// See `mln_geojson_source_options_default` in the
 /// [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/style_8h.html).
@@ -3219,7 +3226,8 @@ GeojsonSourceOptions geojsonSourceOptionsDefault() {
   return _readGeojsonSourceOptions(nativeResult);
 }
 
-/// Returns CPU-complete synchronization for this C API version.
+/// Returns zeroed synchronization with size set for this C API version, which
+/// is CPU completion.
 ///
 /// See `mln_gpu_sync_default` in the
 /// [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/render__target_8h.html).
@@ -3229,8 +3237,8 @@ GpuSync gpuSyncDefault() {
   return _readGpuSync(nativeResult);
 }
 
-/// Returns an exact-match header rule for every resource kind, with no
-/// headers.
+/// Returns a zeroed header rule with size set for this C API version: an
+/// exact match of the empty URL for every resource kind, with no headers.
 ///
 /// See `mln_http_header_rule_default` in the
 /// [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/runtime_8h.html).
@@ -3295,7 +3303,8 @@ void logSetCallback(LogCallback handler) {
   );
 }
 
-/// Returns a 256 by 256 logical extent with one device pixel per UI pixel.
+/// Returns a zeroed logical extent, which every function that takes an extent
+/// rejects.
 ///
 /// See `mln_logical_extent_default` in the
 /// [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/map_8h.html).
@@ -3325,7 +3334,7 @@ LogicalExtent logicalExtentDefault() {
       return (outWidth.value, outHeight.value);
     });
 
-/// Returns map options initialized for this C API version.
+/// Returns zeroed map options with size set for this C API version.
 ///
 /// See `mln_map_options_default` in the
 /// [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/map_8h.html).
@@ -3360,7 +3369,7 @@ MapProjectionHandle mapProjectionCreate(MapView view) =>
       );
     });
 
-/// Returns empty tile tuning options initialized for this C API version.
+/// Returns zeroed tile tuning options with size set for this C API version.
 ///
 /// See `mln_map_tile_options_default` in the
 /// [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/camera_8h.html).
@@ -3370,7 +3379,7 @@ MapTileOptions mapTileOptionsDefault() {
   return _readMapTileOptions(nativeResult);
 }
 
-/// Returns empty viewport options initialized for this C API version.
+/// Returns zeroed viewport options with size set for this C API version.
 ///
 /// See `mln_map_viewport_options_default` in the
 /// [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/camera_8h.html).
@@ -3380,7 +3389,8 @@ MapViewportOptions mapViewportOptionsDefault() {
   return _readMapViewportOptions(nativeResult);
 }
 
-/// Returns Metal borrowed-texture descriptor defaults for this C API version.
+/// Returns a zeroed Metal borrowed-texture descriptor with size set for this
+/// C API version. The caller still sets every required member.
 ///
 /// See `mln_metal_borrowed_texture_descriptor_default` in the
 /// [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/texture_8h.html).
@@ -3390,7 +3400,8 @@ MetalBorrowedTextureDescriptor metalBorrowedTextureDescriptorDefault() {
   return _readMetalBorrowedTextureDescriptor(nativeResult);
 }
 
-/// Returns Metal owned-texture descriptor defaults for this C API version.
+/// Returns a zeroed Metal owned-texture descriptor with size set for this C
+/// API version. The caller still sets every required member.
 ///
 /// See `mln_metal_owned_texture_descriptor_default` in the
 /// [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/texture_8h.html).
@@ -3400,7 +3411,8 @@ MetalOwnedTextureDescriptor metalOwnedTextureDescriptorDefault() {
   return _readMetalOwnedTextureDescriptor(nativeResult);
 }
 
-/// Returns Metal surface descriptor defaults for this C API version.
+/// Returns a zeroed Metal surface descriptor with size set for this C API
+/// version. The caller still sets every required member.
 ///
 /// See `mln_metal_surface_descriptor_default` in the
 /// [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/surface_8h.html).
@@ -3430,8 +3442,8 @@ void networkSetStatus(NetworkStatus status) {
   return _check(raw.mln_network_set_status(status.rawValue, nativeDiagnostic));
 }
 
-/// Returns OpenGL borrowed-texture descriptor defaults for this C API
-/// version.
+/// Returns a zeroed OpenGL borrowed-texture descriptor with size set for this
+/// C API version. The caller still sets every required member.
 ///
 /// See `mln_opengl_borrowed_texture_descriptor_default` in the
 /// [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/texture_8h.html).
@@ -3441,7 +3453,8 @@ OpenglBorrowedTextureDescriptor openglBorrowedTextureDescriptorDefault() {
   return _readOpenglBorrowedTextureDescriptor(nativeResult);
 }
 
-/// Returns OpenGL owned-texture descriptor defaults for this C API version.
+/// Returns a zeroed OpenGL owned-texture descriptor with size set for this C
+/// API version. The caller still sets every required member.
 ///
 /// See `mln_opengl_owned_texture_descriptor_default` in the
 /// [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/texture_8h.html).
@@ -3461,7 +3474,8 @@ OpenglContextProviderFlag openglSupportedContextProviderMask() {
   return OpenglContextProviderFlag.fromRawValue(nativeResult);
 }
 
-/// Returns OpenGL surface descriptor defaults for this C API version.
+/// Returns a zeroed OpenGL surface descriptor with size set for this C API
+/// version. The caller still sets every required member.
 ///
 /// See `mln_opengl_surface_descriptor_default` in the
 /// [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/surface_8h.html).
@@ -3481,7 +3495,8 @@ NativePointer pluginGetRegisterFunctionV1() {
   return NativePointer(nativeResult.address);
 }
 
-/// Returns a default premultiplied RGBA8 image descriptor.
+/// Returns a zeroed premultiplied RGBA8 image descriptor with size set. The
+/// caller still sets every required member.
 ///
 /// See `mln_premultiplied_rgba8_image_default` in the
 /// [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/style_8h.html).
@@ -3509,7 +3524,7 @@ ProjectedMeters projectedMetersForLatLng(LatLng coordinate) =>
       return _readProjectedMeters(outMeters.ref);
     });
 
-/// Returns empty axonometric rendering options initialized for this C API
+/// Returns zeroed axonometric rendering options with size set for this C API
 /// version.
 ///
 /// See `mln_projection_mode_default` in the
@@ -3520,8 +3535,7 @@ ProjectionMode projectionModeDefault() {
   return _readProjectionMode(nativeResult);
 }
 
-/// Returns attachment options initialized for this C API version, with each
-/// field at its documented default.
+/// Returns zeroed attachment options with size set for this C API version.
 ///
 /// See `mln_render_session_attach_options_default` in the
 /// [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/render__target_8h.html).
@@ -3531,7 +3545,7 @@ RenderSessionAttachOptions renderSessionAttachOptionsDefault() {
   return _readRenderSessionAttachOptions(nativeResult);
 }
 
-/// Returns default rendered feature query options.
+/// Returns zeroed rendered feature query options with size set.
 ///
 /// See `mln_rendered_feature_query_options_default` in the
 /// [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/query_8h.html).
@@ -3541,7 +3555,8 @@ RenderedFeatureQueryOptions renderedFeatureQueryOptionsDefault() {
   return _readRenderedFeatureQueryOptions(nativeResult);
 }
 
-/// Returns an exact-match route for every resource kind.
+/// Returns a zeroed route with size set for this C API version: an exact
+/// match of the empty URL for every resource kind.
 ///
 /// See `mln_resource_route_default` in the
 /// [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/runtime_8h.html).
@@ -3574,7 +3589,7 @@ RuntimeHandle runtimeCreate(RuntimeOptions options) => withNativeArena((arena) {
   );
 });
 
-/// Returns runtime options initialized for this C API version.
+/// Returns zeroed runtime options with size set for this C API version.
 ///
 /// See `mln_runtime_options_default` in the
 /// [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/runtime_8h.html).
@@ -3584,7 +3599,7 @@ RuntimeOptions runtimeOptionsDefault() {
   return _readRuntimeOptions(nativeResult);
 }
 
-/// Returns default source feature query options.
+/// Returns zeroed source feature query options with size set.
 ///
 /// See `mln_source_feature_query_options_default` in the
 /// [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/query_8h.html).
@@ -3621,7 +3636,7 @@ StyleExpressionHandle styleExpressionCreate(
   );
 });
 
-/// Returns default style expression inputs, which set no input.
+/// Returns zeroed style expression inputs with size set, which set no input.
 ///
 /// See `mln_style_expression_inputs_default` in the
 /// [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/style__expression_8h.html).
@@ -3631,7 +3646,7 @@ StyleExpressionInputs styleExpressionInputsDefault() {
   return _readStyleExpressionInputs(nativeResult);
 }
 
-/// Returns default style expression options.
+/// Returns zeroed style expression options with size set.
 ///
 /// See `mln_style_expression_options_default` in the
 /// [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/style__expression_8h.html).
@@ -3641,7 +3656,7 @@ StyleExpressionOptions styleExpressionOptionsDefault() {
   return _readStyleExpressionOptions(nativeResult);
 }
 
-/// Returns default runtime style image options.
+/// Returns zeroed runtime style image options with size set.
 ///
 /// See `mln_style_image_options_default` in the
 /// [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/style_8h.html).
@@ -3651,7 +3666,7 @@ StyleImageOptions styleImageOptionsDefault() {
   return _readStyleImageOptions(nativeResult);
 }
 
-/// Returns default global style transition options.
+/// Returns zeroed global style transition options with size set.
 ///
 /// See `mln_style_transition_options_default` in the
 /// [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/style_8h.html).
@@ -3671,8 +3686,8 @@ RenderBackendFlag supportedRenderBackendMask() {
   return RenderBackendFlag.fromRawValue(nativeResult);
 }
 
-/// Returns Vulkan borrowed-texture descriptor defaults for this C API
-/// version.
+/// Returns a zeroed Vulkan borrowed-texture descriptor with size set for this
+/// C API version. The caller still sets every required member.
 ///
 /// See `mln_vulkan_borrowed_texture_descriptor_default` in the
 /// [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/texture_8h.html).
@@ -3682,7 +3697,8 @@ VulkanBorrowedTextureDescriptor vulkanBorrowedTextureDescriptorDefault() {
   return _readVulkanBorrowedTextureDescriptor(nativeResult);
 }
 
-/// Returns Vulkan owned-texture descriptor defaults for this C API version.
+/// Returns a zeroed Vulkan owned-texture descriptor with size set for this C
+/// API version. The caller still sets every required member.
 ///
 /// See `mln_vulkan_owned_texture_descriptor_default` in the
 /// [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/texture_8h.html).
@@ -3692,7 +3708,8 @@ VulkanOwnedTextureDescriptor vulkanOwnedTextureDescriptorDefault() {
   return _readVulkanOwnedTextureDescriptor(nativeResult);
 }
 
-/// Returns Vulkan surface descriptor defaults for this C API version.
+/// Returns a zeroed Vulkan surface descriptor with size set for this C API
+/// version. The caller still sets every required member.
 ///
 /// See `mln_vulkan_surface_descriptor_default` in the
 /// [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/surface_8h.html).
