@@ -260,17 +260,81 @@ mln_status mln_lease_dispose(mln_lease lease, const mln_completion *completion, 
             {"MapHandle", "RuntimeHandle"},
         )
 
-    def test_tagged_union_wrapper_keeps_payload_record_and_unknown_tag(self):
+    def test_a_record_of_only_a_union_is_its_variants(self):
         api = self.parse(groups=("tagged_union",))
-        values = self.materialize(api).values
-        event = values.Event._from_native(
-            {"payload": {"kind": "frame", "value": {"timestamp": 12.5}}}
-        )
+        generated = self.materialize(api)
+        operations, values = generated.operations, generated.values
+        # A returned union keeps an arm for a tag this binding predates.
         self.assertEqual(
-            event.payload, values.EventFrameVariant(values.EventFrame(12.5))
+            values.Event.__value__, values.EventFrameVariant | values.UnknownVariant
         )
-        unknown = values.Event._from_native({"payload": {"kind": None, "tag": 42}})
-        self.assertEqual(unknown.payload, values.UnknownVariant(42))
+        operations.map_future = lambda future, convert: convert(future)
+        native = operations._native
+        native.map_event.return_value = {
+            "kind": "frame",
+            "value": {"timestamp": 12.5},
+        }
+        self.assertEqual(
+            operations.map_event(1), values.EventFrameVariant(values.EventFrame(12.5))
+        )
+        native.map_event.return_value = {"kind": None, "tag": 42}
+        self.assertEqual(operations.map_event(1), values.UnknownVariant(42))
+        rust = python.generate(api)["src/generated_operations.rs"]
+        self.assertIn("Ok(match value.kind {", rust)
+
+    def test_an_input_only_union_has_no_unknown_arm(self):
+        api = self.parse(
+            """
+typedef enum mln_shape_kind { MLN_SHAPE_DOT = 1, MLN_SHAPE_SPAN = 2 } mln_shape_kind;
+typedef struct mln_dot { double x; } mln_dot;
+typedef struct mln_span { double start; double end; } mln_span;
+typedef struct mln_shape {
+  uint32_t size;
+  mln_shape_kind kind;
+  union {
+    mln_dot dot BIND("variant=MLN_SHAPE_DOT");
+    mln_span span BIND("variant=MLN_SHAPE_SPAN");
+  } data BIND("tag=kind");
+} mln_shape;
+mln_status mln_shape_draw(const mln_shape* shape, mln_diagnostic* out_diagnostic);
+""",
+            groups=("standard_types",),
+        )
+        values = self.materialize(api).values
+        self.assertEqual(
+            values.Shape.__value__, values.ShapeDotVariant | values.ShapeSpanVariant
+        )
+        rust = python.generate(api)["src/generated_operations.rs"]
+        # The selected variant is the value, so its tag is read from it.
+        self.assertIn('let field = value;\n    let tag = field.getattr("_tag")?', rust)
+
+    def test_an_optional_member_that_presents_a_union_decodes_both_states(self):
+        api = self.parse(
+            """
+typedef enum mln_shape_kind { MLN_SHAPE_DOT = 1 } mln_shape_kind;
+typedef struct mln_dot { double x; } mln_dot;
+typedef struct mln_shape {
+  mln_shape_kind kind;
+  union { mln_dot dot BIND("variant=MLN_SHAPE_DOT"); } data BIND("tag=kind");
+} mln_shape;
+typedef enum BIND("kind=bitmask") mln_scene_field : uint32_t { MLN_SCENE_SHAPE = 1 } mln_scene_field;
+typedef uint32_t mln_scene_fields;
+typedef struct mln_scene {
+  mln_scene_fields fields;
+  mln_shape shape BIND("mask=fields;bit=MLN_SCENE_SHAPE");
+} mln_scene;
+BIND("execution=query;result=mln_scene")
+mln_status mln_map_scene(mln_map map, const mln_completion *completion, mln_diagnostic *out_diagnostic);
+""",
+            groups=("standard_types",),
+        )
+        values = self.materialize(api).values
+        absent = values.Scene._from_native({"shape": None})
+        self.assertIsNone(absent.shape)
+        present = values.Scene._from_native(
+            {"shape": {"kind": "dot", "value": {"x": 2.5}}}
+        )
+        self.assertEqual(present.shape, values.ShapeDotVariant(values.Dot(2.5)))
 
     def test_an_owned_callback_handle_arrives_as_its_owner(self):
         api = self.parse(groups=("owned_argument",))
