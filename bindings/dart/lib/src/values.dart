@@ -12,6 +12,14 @@ import 'runtime/runtime.dart';
 
 part 'generated_values.dart';
 
+/// The default of a `copyWith` parameter that takes any JSON value, where null
+/// is a value of its own: it means the member is absent.
+const Object _unchanged = _Unchanged();
+
+final class _Unchanged {
+  const _Unchanged();
+}
+
 /// A value whose equality compares its members, and lists element by element.
 abstract base class _Value {
   const _Value();
@@ -89,6 +97,8 @@ abstract base class _Flags<T extends _Flags<T>> extends _Enum {
   }
 }
 
+/// Compares lists element by element and maps, such as JSON objects, entry by
+/// entry.
 bool _valueEquals(Object? left, Object? right) {
   if (left is List && right is List) {
     if (left.length != right.length) {
@@ -101,8 +111,24 @@ bool _valueEquals(Object? left, Object? right) {
     }
     return true;
   }
+  if (left is Map && right is Map) {
+    if (left.length != right.length) {
+      return false;
+    }
+    for (final MapEntry(:key, :value) in left.entries) {
+      if (!right.containsKey(key) || !_valueEquals(value, right[key])) {
+        return false;
+      }
+    }
+    return true;
+  }
   return left == right;
 }
 
-int _valueHash(Object? value) =>
-    value is List ? Object.hashAll(value.map(_valueHash)) : value.hashCode;
+int _valueHash(Object? value) => switch (value) {
+  final List<Object?> list => Object.hashAll(list.map(_valueHash)),
+  final Map<Object?, Object?> map => Object.hashAllUnordered(
+    map.entries.map((entry) => Object.hash(entry.key, _valueHash(entry.value))),
+  ),
+  _ => value.hashCode,
+};
