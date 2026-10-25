@@ -2,13 +2,6 @@
 // JSON. An expression is a JSON array.
 
 #include <maplibre_native_c.h>
-#include <string.h>
-
-// #region node
-static mln_buffer_view view(const char* text) {
-  return (mln_buffer_view){.data = text, .size = strlen(text)};
-}
-// #endregion node
 
 mln_status size_and_filter_by_magnitude(
   mln_map map, const char* layer_id, const mln_completion* property_completion,
@@ -20,11 +13,12 @@ mln_status size_and_filter_by_magnitude(
   // #endregion expression
 
   // #region property
-  const mln_buffer_view radius_json = view(radius);
+  const mln_buffer_view radius_json = mln_buffer_view_from_cstr(radius);
   // #endregion property
   // #region set
   const mln_status status = mln_map_set_style_layer_property(
-    map, view(layer_id), view("circle-radius"), radius_json,
+    map, mln_buffer_view_from_cstr(layer_id),
+    mln_buffer_view_from_cstr("circle-radius"), radius_json,
     property_completion, NULL
   );
   if (status != MLN_STATUS_OK) return status;
@@ -32,9 +26,11 @@ mln_status size_and_filter_by_magnitude(
 
   // #region filter
   // [">=", ["get", "mag"], 2.5]
-  const mln_buffer_view filter = view("[\">=\",[\"get\",\"mag\"],2.5]");
+  const mln_buffer_view filter =
+    mln_buffer_view_from_cstr("[\">=\",[\"get\",\"mag\"],2.5]");
   return mln_map_set_style_layer_property(
-    map, view(layer_id), view("filter"), filter, filter_completion, NULL
+    map, mln_buffer_view_from_cstr(layer_id),
+    mln_buffer_view_from_cstr("filter"), filter, filter_completion, NULL
   );
   // #endregion filter
 }
