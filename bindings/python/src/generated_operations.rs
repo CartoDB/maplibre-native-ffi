@@ -235,7 +235,7 @@ unsafe extern "C" fn generated_callback_mln_custom_geometry_source_options_cance
     outcome
 }
 
-unsafe extern "C" fn generated_callback_mln_custom_mvt_vector_source_options_fetch_tile(
+unsafe extern "C" fn generated_callback_mln_custom_vector_source_options_fetch_tile(
     user_data: *mut std::ffi::c_void,
     tile_id: sys::mln_canonical_tile_id,
 ) {
@@ -254,7 +254,7 @@ unsafe extern "C" fn generated_callback_mln_custom_mvt_vector_source_options_fet
     outcome
 }
 
-unsafe extern "C" fn generated_callback_mln_custom_mvt_vector_source_options_cancel_tile(
+unsafe extern "C" fn generated_callback_mln_custom_vector_source_options_cancel_tile(
     user_data: *mut std::ffi::c_void,
     tile_id: sys::mln_canonical_tile_id,
 ) {
@@ -1844,20 +1844,20 @@ fn generated_input_mln_custom_geometry_source_options<'py>(
     Ok(raw)
 }
 
-fn generated_input_mln_custom_mvt_vector_source_options<'py>(
+fn generated_input_mln_custom_vector_source_options<'py>(
     value: &Bound<'py, PyAny>,
     storage: &mut GeneratedInputStorage<'py>,
-) -> PyResult<sys::mln_custom_mvt_vector_source_options> {
-    let mut raw: sys::mln_custom_mvt_vector_source_options = unsafe { std::mem::zeroed() };
-    raw.size = std::mem::size_of::<sys::mln_custom_mvt_vector_source_options>() as _;
+) -> PyResult<sys::mln_custom_vector_source_options> {
+    let mut raw: sys::mln_custom_vector_source_options = unsafe { std::mem::zeroed() };
+    raw.size = std::mem::size_of::<sys::mln_custom_vector_source_options>() as _;
     raw.fields = 0;
     if let Some(field) = generated_present(value, "min_zoom")? {
         raw.min_zoom = field.extract::<f64>()?;
-        raw.fields |= sys::MLN_CUSTOM_MVT_VECTOR_SOURCE_OPTION_MIN_ZOOM;
+        raw.fields |= sys::MLN_CUSTOM_VECTOR_SOURCE_OPTION_MIN_ZOOM;
     }
     if let Some(field) = generated_present(value, "max_zoom")? {
         raw.max_zoom = field.extract::<f64>()?;
-        raw.fields |= sys::MLN_CUSTOM_MVT_VECTOR_SOURCE_OPTION_MAX_ZOOM;
+        raw.fields |= sys::MLN_CUSTOM_VECTOR_SOURCE_OPTION_MAX_ZOOM;
     }
     let fetch_tile_enabled = !value.getattr("fetch_tile")?.is_none();
     let cancel_tile_enabled = !value.getattr("cancel_tile")?.is_none();
@@ -1868,12 +1868,12 @@ fn generated_input_mln_custom_mvt_vector_source_options<'py>(
         ]);
         raw.release_user_data = Some(generated_release_callbacks);
         raw.fetch_tile = if fetch_tile_enabled {
-            Some(generated_callback_mln_custom_mvt_vector_source_options_fetch_tile)
+            Some(generated_callback_mln_custom_vector_source_options_fetch_tile)
         } else {
             None
         };
         raw.cancel_tile = if cancel_tile_enabled {
-            Some(generated_callback_mln_custom_mvt_vector_source_options_cancel_tile)
+            Some(generated_callback_mln_custom_vector_source_options_cancel_tile)
         } else {
             None
         };
@@ -3547,7 +3547,7 @@ impl MapHandle {
         Ok(future)
     }
     #[pyo3(signature = (source_id, options))]
-    fn add_custom_mvt_vector_source(
+    fn add_custom_vector_source(
         &self,
         py: Python<'_>,
         source_id: &Bound<'_, PyAny>,
@@ -3557,11 +3557,11 @@ impl MapHandle {
         let storage = &mut call.storage;
         let source_id_value = storage.buffer(source_id.clone(), true)?;
         let options_value =
-            generated_input_mln_custom_mvt_vector_source_options(&options.clone(), storage)?;
+            generated_input_mln_custom_vector_source_options(&options.clone(), storage)?;
         let handle = self.input();
         let future = unsafe {
             call.command(|completion, diagnostic| {
-                sys::mln_map_add_custom_mvt_vector_source(
+                sys::mln_map_add_custom_vector_source(
                     handle,
                     source_id_value,
                     &options_value,
@@ -3575,7 +3575,7 @@ impl MapHandle {
         Ok(future)
     }
     #[pyo3(signature = (source_id, options))]
-    fn _discard_add_custom_mvt_vector_source(
+    fn _discard_add_custom_vector_source(
         &self,
         py: Python<'_>,
         source_id: &Bound<'_, PyAny>,
@@ -3585,11 +3585,11 @@ impl MapHandle {
         let storage = &mut call.storage;
         let source_id_value = storage.buffer(source_id.clone(), true)?;
         let options_value =
-            generated_input_mln_custom_mvt_vector_source_options(&options.clone(), storage)?;
+            generated_input_mln_custom_vector_source_options(&options.clone(), storage)?;
         let handle = self.input();
         let future = unsafe {
             call.discard(|completion, diagnostic| {
-                sys::mln_map_add_custom_mvt_vector_source(
+                sys::mln_map_add_custom_vector_source(
                     handle,
                     source_id_value,
                     &options_value,
@@ -5015,7 +5015,7 @@ impl MapHandle {
         }
     }
     #[pyo3(signature = (source_id, tile_id))]
-    fn invalidate_custom_mvt_vector_source_tile(
+    fn invalidate_custom_vector_source_tile(
         &self,
         py: Python<'_>,
         source_id: &Bound<'_, PyAny>,
@@ -5028,7 +5028,7 @@ impl MapHandle {
         let handle = self.input();
         unsafe {
             call.command(|completion, diagnostic| {
-                sys::mln_map_invalidate_custom_mvt_vector_source_tile(
+                sys::mln_map_invalidate_custom_vector_source_tile(
                     handle,
                     source_id_value,
                     tile_id_value,
@@ -5039,7 +5039,7 @@ impl MapHandle {
         }
     }
     #[pyo3(signature = (source_id, tile_id))]
-    fn _discard_invalidate_custom_mvt_vector_source_tile(
+    fn _discard_invalidate_custom_vector_source_tile(
         &self,
         py: Python<'_>,
         source_id: &Bound<'_, PyAny>,
@@ -5052,7 +5052,7 @@ impl MapHandle {
         let handle = self.input();
         unsafe {
             call.discard(|completion, diagnostic| {
-                sys::mln_map_invalidate_custom_mvt_vector_source_tile(
+                sys::mln_map_invalidate_custom_vector_source_tile(
                     handle,
                     source_id_value,
                     tile_id_value,
@@ -5551,12 +5551,13 @@ impl MapHandle {
             })
         }
     }
-    #[pyo3(signature = (source_id, tile_id, data))]
-    fn set_custom_mvt_vector_source_tile_data(
+    #[pyo3(signature = (source_id, tile_id, encoding, data))]
+    fn set_custom_vector_source_tile_data(
         &self,
         py: Python<'_>,
         source_id: &Bound<'_, PyAny>,
         tile_id: &Bound<'_, PyAny>,
+        encoding: sys::mln_style_vector_tile_encoding,
         data: &Bound<'_, PyAny>,
     ) -> PyResult<Py<PyAny>> {
         let mut call = GeneratedCall::new(py);
@@ -5567,10 +5568,11 @@ impl MapHandle {
         let handle = self.input();
         unsafe {
             call.command(|completion, diagnostic| {
-                sys::mln_map_set_custom_mvt_vector_source_tile_data(
+                sys::mln_map_set_custom_vector_source_tile_data(
                     handle,
                     source_id_value,
                     tile_id_value,
+                    encoding,
                     data_value,
                     completion,
                     diagnostic,
@@ -5578,12 +5580,13 @@ impl MapHandle {
             })
         }
     }
-    #[pyo3(signature = (source_id, tile_id, data))]
-    fn _discard_set_custom_mvt_vector_source_tile_data(
+    #[pyo3(signature = (source_id, tile_id, encoding, data))]
+    fn _discard_set_custom_vector_source_tile_data(
         &self,
         py: Python<'_>,
         source_id: &Bound<'_, PyAny>,
         tile_id: &Bound<'_, PyAny>,
+        encoding: sys::mln_style_vector_tile_encoding,
         data: &Bound<'_, PyAny>,
     ) -> PyResult<Py<PyAny>> {
         let mut call = GeneratedCall::new(py);
@@ -5594,10 +5597,11 @@ impl MapHandle {
         let handle = self.input();
         unsafe {
             call.discard(|completion, diagnostic| {
-                sys::mln_map_set_custom_mvt_vector_source_tile_data(
+                sys::mln_map_set_custom_vector_source_tile_data(
                     handle,
                     source_id_value,
                     tile_id_value,
+                    encoding,
                     data_value,
                     completion,
                     diagnostic,
@@ -5606,7 +5610,7 @@ impl MapHandle {
         }
     }
     #[pyo3(signature = (source_id, tile_id, message))]
-    fn set_custom_mvt_vector_source_tile_error(
+    fn set_custom_vector_source_tile_error(
         &self,
         py: Python<'_>,
         source_id: &Bound<'_, PyAny>,
@@ -5621,7 +5625,7 @@ impl MapHandle {
         let handle = self.input();
         unsafe {
             call.command(|completion, diagnostic| {
-                sys::mln_map_set_custom_mvt_vector_source_tile_error(
+                sys::mln_map_set_custom_vector_source_tile_error(
                     handle,
                     source_id_value,
                     tile_id_value,
@@ -5633,7 +5637,7 @@ impl MapHandle {
         }
     }
     #[pyo3(signature = (source_id, tile_id, message))]
-    fn _discard_set_custom_mvt_vector_source_tile_error(
+    fn _discard_set_custom_vector_source_tile_error(
         &self,
         py: Python<'_>,
         source_id: &Bound<'_, PyAny>,
@@ -5648,7 +5652,7 @@ impl MapHandle {
         let handle = self.input();
         unsafe {
             call.discard(|completion, diagnostic| {
-                sys::mln_map_set_custom_mvt_vector_source_tile_error(
+                sys::mln_map_set_custom_vector_source_tile_error(
                     handle,
                     source_id_value,
                     tile_id_value,

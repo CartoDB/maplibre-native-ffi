@@ -155,7 +155,7 @@ internal actual object C {
   ): Int
 
   @JvmStatic
-  actual external fun mln_map_add_custom_mvt_vector_source(
+  actual external fun mln_map_add_custom_vector_source(
     map: Long,
     sourceId: Long,
     options: Long,
@@ -538,7 +538,7 @@ internal actual object C {
   ): Int
 
   @JvmStatic
-  actual external fun mln_map_invalidate_custom_mvt_vector_source_tile(
+  actual external fun mln_map_invalidate_custom_vector_source_tile(
     map: Long,
     sourceId: Long,
     tileId: Long,
@@ -749,17 +749,18 @@ internal actual object C {
   ): Int
 
   @JvmStatic
-  actual external fun mln_map_set_custom_mvt_vector_source_tile_data(
+  actual external fun mln_map_set_custom_vector_source_tile_data(
     map: Long,
     sourceId: Long,
     tileId: Long,
+    encoding: Int,
     data: Long,
     completion: Long,
     outDiagnostic: Long,
   ): Int
 
   @JvmStatic
-  actual external fun mln_map_set_custom_mvt_vector_source_tile_error(
+  actual external fun mln_map_set_custom_vector_source_tile_error(
     map: Long,
     sourceId: Long,
     tileId: Long,

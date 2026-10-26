@@ -11,7 +11,7 @@ import type {
   CameraUpdate,
   CanonicalTileId,
   CustomGeometrySourceOptions,
-  CustomMvtVectorSourceOptions,
+  CustomVectorSourceOptions,
   FeatureStateSelector,
   FrameDemand,
   FreeCameraOptions,
@@ -75,6 +75,7 @@ import type {
   StyleLayerInfo,
   StyleSourceInfo,
   StyleTransitionOptions,
+  StyleVectorTileEncoding,
   TextureReadbackResult,
   VulkanBorrowedTextureDescriptor,
   VulkanOwnedTextureDescriptor,
@@ -601,19 +602,19 @@ export class MapHandle extends Owner {
   }
 
   /**
-   * Adds a custom MVT vector source. The callback runs asynchronously on the
+   * Adds a custom vector source. The callback runs asynchronously on the
    * JavaScript thread that registered it, after native queues the call.
    *
-   * See `mln_map_add_custom_mvt_vector_source` in the
+   * See `mln_map_add_custom_vector_source` in the
    * [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/style_8h.html).
    */
-  addCustomMvtVectorSource(
+  addCustomVectorSource(
     sourceId: string,
-    options: CustomMvtVectorSourceOptions,
+    options: CustomVectorSourceOptions,
   ): Promise<CommandCompletion> {
     return withRegistrations((registrations) =>
       command((completion) => {
-        native.mln_map_add_custom_mvt_vector_source(
+        native.mln_map_add_custom_vector_source(
           this.id,
           sourceId,
           options,
@@ -1544,17 +1545,17 @@ export class MapHandle extends Owner {
   }
 
   /**
-   * Invalidates custom MVT vector source data for one canonical tile.
+   * Invalidates custom vector source data for one canonical tile.
    *
-   * See `mln_map_invalidate_custom_mvt_vector_source_tile` in the
+   * See `mln_map_invalidate_custom_vector_source_tile` in the
    * [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/style_8h.html).
    */
-  invalidateCustomMvtVectorSourceTile(
+  invalidateCustomVectorSourceTile(
     sourceId: string,
     tileId: CanonicalTileId = {},
   ): Promise<CommandCompletion> {
     return command((completion) =>
-      native.mln_map_invalidate_custom_mvt_vector_source_tile(
+      native.mln_map_invalidate_custom_vector_source_tile(
         this.id,
         sourceId,
         tileId,
@@ -1780,21 +1781,23 @@ export class MapHandle extends Owner {
   }
 
   /**
-   * Sets custom MVT vector source data for one canonical tile.
+   * Sets custom vector source data for one canonical tile.
    *
-   * See `mln_map_set_custom_mvt_vector_source_tile_data` in the
+   * See `mln_map_set_custom_vector_source_tile_data` in the
    * [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/style_8h.html).
    */
-  setCustomMvtVectorSourceTileData(
+  setCustomVectorSourceTileData(
     sourceId: string,
     tileId: CanonicalTileId,
+    encoding: StyleVectorTileEncoding,
     data: Uint8Array,
   ): Promise<CommandCompletion> {
     return command((completion) =>
-      native.mln_map_set_custom_mvt_vector_source_tile_data(
+      native.mln_map_set_custom_vector_source_tile_data(
         this.id,
         sourceId,
         tileId,
+        encoding,
         data,
         completion,
       ),
@@ -1802,18 +1805,18 @@ export class MapHandle extends Owner {
   }
 
   /**
-   * Reports a custom MVT vector source error for one canonical tile.
+   * Reports a custom vector source error for one canonical tile.
    *
-   * See `mln_map_set_custom_mvt_vector_source_tile_error` in the
+   * See `mln_map_set_custom_vector_source_tile_error` in the
    * [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/style_8h.html).
    */
-  setCustomMvtVectorSourceTileError(
+  setCustomVectorSourceTileError(
     sourceId: string,
     tileId: CanonicalTileId,
     message: string,
   ): Promise<CommandCompletion> {
     return command((completion) =>
-      native.mln_map_set_custom_mvt_vector_source_tile_error(
+      native.mln_map_set_custom_vector_source_tile_error(
         this.id,
         sourceId,
         tileId,
@@ -2258,18 +2261,18 @@ export class MapHandleDiscarding {
   }
 
   /**
-   * Adds a custom MVT vector source. The callback runs asynchronously on the
+   * Adds a custom vector source. The callback runs asynchronously on the
    * JavaScript thread that registered it, after native queues the call.
    *
-   * See `mln_map_add_custom_mvt_vector_source` in the
+   * See `mln_map_add_custom_vector_source` in the
    * [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/style_8h.html).
    */
-  addCustomMvtVectorSource(
+  addCustomVectorSource(
     sourceId: string,
-    options: CustomMvtVectorSourceOptions,
+    options: CustomVectorSourceOptions,
   ): void {
     withRegistrations((registrations) => {
-      native.mln_map_add_custom_mvt_vector_source(
+      native.mln_map_add_custom_vector_source(
         this.#owner.id,
         sourceId,
         options,
@@ -2491,16 +2494,16 @@ export class MapHandleDiscarding {
   }
 
   /**
-   * Invalidates custom MVT vector source data for one canonical tile.
+   * Invalidates custom vector source data for one canonical tile.
    *
-   * See `mln_map_invalidate_custom_mvt_vector_source_tile` in the
+   * See `mln_map_invalidate_custom_vector_source_tile` in the
    * [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/style_8h.html).
    */
-  invalidateCustomMvtVectorSourceTile(
+  invalidateCustomVectorSourceTile(
     sourceId: string,
     tileId: CanonicalTileId = {},
   ): void {
-    native.mln_map_invalidate_custom_mvt_vector_source_tile(
+    native.mln_map_invalidate_custom_vector_source_tile(
       this.#owner.id,
       sourceId,
       tileId,
@@ -2634,37 +2637,39 @@ export class MapHandleDiscarding {
   }
 
   /**
-   * Sets custom MVT vector source data for one canonical tile.
+   * Sets custom vector source data for one canonical tile.
    *
-   * See `mln_map_set_custom_mvt_vector_source_tile_data` in the
+   * See `mln_map_set_custom_vector_source_tile_data` in the
    * [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/style_8h.html).
    */
-  setCustomMvtVectorSourceTileData(
+  setCustomVectorSourceTileData(
     sourceId: string,
     tileId: CanonicalTileId,
+    encoding: StyleVectorTileEncoding,
     data: Uint8Array,
   ): void {
-    native.mln_map_set_custom_mvt_vector_source_tile_data(
+    native.mln_map_set_custom_vector_source_tile_data(
       this.#owner.id,
       sourceId,
       tileId,
+      encoding,
       data,
       undefined,
     );
   }
 
   /**
-   * Reports a custom MVT vector source error for one canonical tile.
+   * Reports a custom vector source error for one canonical tile.
    *
-   * See `mln_map_set_custom_mvt_vector_source_tile_error` in the
+   * See `mln_map_set_custom_vector_source_tile_error` in the
    * [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/style_8h.html).
    */
-  setCustomMvtVectorSourceTileError(
+  setCustomVectorSourceTileError(
     sourceId: string,
     tileId: CanonicalTileId,
     message: string,
   ): void {
-    native.mln_map_set_custom_mvt_vector_source_tile_error(
+    native.mln_map_set_custom_vector_source_tile_error(
       this.#owner.id,
       sourceId,
       tileId,

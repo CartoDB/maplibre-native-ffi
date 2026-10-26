@@ -107,9 +107,9 @@ internal actual object C {
       JAVA_LONG,
       JAVA_LONG,
     )
-  private val mln_map_add_custom_mvt_vector_source =
+  private val mln_map_add_custom_vector_source =
     Ffm.downcall(
-      "mln_map_add_custom_mvt_vector_source",
+      "mln_map_add_custom_vector_source",
       JAVA_INT,
       JAVA_LONG,
       mln_buffer_view,
@@ -475,9 +475,9 @@ internal actual object C {
       JAVA_LONG,
       JAVA_LONG,
     )
-  private val mln_map_invalidate_custom_mvt_vector_source_tile =
+  private val mln_map_invalidate_custom_vector_source_tile =
     Ffm.downcall(
-      "mln_map_invalidate_custom_mvt_vector_source_tile",
+      "mln_map_invalidate_custom_vector_source_tile",
       JAVA_INT,
       JAVA_LONG,
       mln_buffer_view,
@@ -659,20 +659,21 @@ internal actual object C {
       JAVA_LONG,
       JAVA_LONG,
     )
-  private val mln_map_set_custom_mvt_vector_source_tile_data =
+  private val mln_map_set_custom_vector_source_tile_data =
     Ffm.downcall(
-      "mln_map_set_custom_mvt_vector_source_tile_data",
+      "mln_map_set_custom_vector_source_tile_data",
       JAVA_INT,
       JAVA_LONG,
       mln_buffer_view,
       mln_canonical_tile_id,
+      JAVA_INT,
       mln_buffer_view,
       JAVA_LONG,
       JAVA_LONG,
     )
-  private val mln_map_set_custom_mvt_vector_source_tile_error =
+  private val mln_map_set_custom_vector_source_tile_error =
     Ffm.downcall(
-      "mln_map_set_custom_mvt_vector_source_tile_error",
+      "mln_map_set_custom_vector_source_tile_error",
       JAVA_INT,
       JAVA_LONG,
       mln_buffer_view,
@@ -1436,14 +1437,14 @@ internal actual object C {
       outDiagnostic,
     ) as Int
 
-  actual fun mln_map_add_custom_mvt_vector_source(
+  actual fun mln_map_add_custom_vector_source(
     map: Long,
     sourceId: Long,
     options: Long,
     completion: Long,
     outDiagnostic: Long,
   ): Int =
-    mln_map_add_custom_mvt_vector_source.invokeExact(
+    mln_map_add_custom_vector_source.invokeExact(
       map,
       Ffm.value(sourceId, mln_buffer_view),
       options,
@@ -2003,14 +2004,14 @@ internal actual object C {
       outDiagnostic,
     ) as Int
 
-  actual fun mln_map_invalidate_custom_mvt_vector_source_tile(
+  actual fun mln_map_invalidate_custom_vector_source_tile(
     map: Long,
     sourceId: Long,
     tileId: Long,
     completion: Long,
     outDiagnostic: Long,
   ): Int =
-    mln_map_invalidate_custom_mvt_vector_source_tile.invokeExact(
+    mln_map_invalidate_custom_vector_source_tile.invokeExact(
       map,
       Ffm.value(sourceId, mln_buffer_view),
       Ffm.value(tileId, mln_canonical_tile_id),
@@ -2276,24 +2277,26 @@ internal actual object C {
       outDiagnostic,
     ) as Int
 
-  actual fun mln_map_set_custom_mvt_vector_source_tile_data(
+  actual fun mln_map_set_custom_vector_source_tile_data(
     map: Long,
     sourceId: Long,
     tileId: Long,
+    encoding: Int,
     data: Long,
     completion: Long,
     outDiagnostic: Long,
   ): Int =
-    mln_map_set_custom_mvt_vector_source_tile_data.invokeExact(
+    mln_map_set_custom_vector_source_tile_data.invokeExact(
       map,
       Ffm.value(sourceId, mln_buffer_view),
       Ffm.value(tileId, mln_canonical_tile_id),
+      encoding,
       Ffm.value(data, mln_buffer_view),
       completion,
       outDiagnostic,
     ) as Int
 
-  actual fun mln_map_set_custom_mvt_vector_source_tile_error(
+  actual fun mln_map_set_custom_vector_source_tile_error(
     map: Long,
     sourceId: Long,
     tileId: Long,
@@ -2301,7 +2304,7 @@ internal actual object C {
     completion: Long,
     outDiagnostic: Long,
   ): Int =
-    mln_map_set_custom_mvt_vector_source_tile_error.invokeExact(
+    mln_map_set_custom_vector_source_tile_error.invokeExact(
       map,
       Ffm.value(sourceId, mln_buffer_view),
       Ffm.value(tileId, mln_canonical_tile_id),

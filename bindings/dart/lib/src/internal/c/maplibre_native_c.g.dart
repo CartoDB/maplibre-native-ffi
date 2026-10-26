@@ -314,7 +314,11 @@ final class mln_custom_geometry_source_options extends Struct {
   external int queue;
 }
 
-final class mln_custom_mvt_vector_source_options extends Struct {
+final class mln_custom_source_tile_delivery extends Struct {
+  external mln_canonical_tile_id tile_id;
+}
+
+final class mln_custom_vector_source_options extends Struct {
   @Uint32()
   external int size;
   @Uint32()
@@ -329,10 +333,6 @@ final class mln_custom_mvt_vector_source_options extends Struct {
   external mln_user_data_release release_user_data;
   @Uint64()
   external int queue;
-}
-
-final class mln_custom_source_tile_delivery extends Struct {
-  external mln_canonical_tile_id tile_id;
 }
 
 final class mln_delivery extends Struct {
@@ -1741,9 +1741,9 @@ const MLN_CUSTOM_GEOMETRY_SOURCE_OPTION_BUFFER = 16;
 const MLN_CUSTOM_GEOMETRY_SOURCE_OPTION_CLIP = 32;
 const MLN_CUSTOM_GEOMETRY_SOURCE_OPTION_WRAP = 64;
 
-// mln_custom_mvt_vector_source_option_field
-const MLN_CUSTOM_MVT_VECTOR_SOURCE_OPTION_MIN_ZOOM = 1;
-const MLN_CUSTOM_MVT_VECTOR_SOURCE_OPTION_MAX_ZOOM = 2;
+// mln_custom_vector_source_option_field
+const MLN_CUSTOM_VECTOR_SOURCE_OPTION_MIN_ZOOM = 1;
+const MLN_CUSTOM_VECTOR_SOURCE_OPTION_MAX_ZOOM = 2;
 
 // mln_delivery_type
 const MLN_DELIVERY_TYPE_COMPLETION = 1;
@@ -2148,8 +2148,8 @@ const MLN_STYLE_SOURCE_TYPE_GEO_JSON = 4;
 const MLN_STYLE_SOURCE_TYPE_IMAGE = 5;
 const MLN_STYLE_SOURCE_TYPE_VIDEO = 6;
 const MLN_STYLE_SOURCE_TYPE_ANNOTATIONS = 7;
-const MLN_STYLE_SOURCE_TYPE_CUSTOM_VECTOR = 8;
-const MLN_STYLE_SOURCE_TYPE_CUSTOM_MVT_VECTOR = 9;
+const MLN_STYLE_SOURCE_TYPE_CUSTOM_GEOMETRY = 8;
+const MLN_STYLE_SOURCE_TYPE_CUSTOM_VECTOR = 9;
 
 // mln_style_tile_scheme
 const MLN_STYLE_TILE_SCHEME_XYZ = 0;
@@ -2492,15 +2492,15 @@ external int mln_map_add_custom_geometry_source(
   Int32 Function(
     mln_map,
     mln_buffer_view,
-    Pointer<mln_custom_mvt_vector_source_options>,
+    Pointer<mln_custom_vector_source_options>,
     Pointer<mln_completion>,
     Pointer<mln_diagnostic>,
   )
 >()
-external int mln_map_add_custom_mvt_vector_source(
+external int mln_map_add_custom_vector_source(
   int map,
   mln_buffer_view source_id,
-  Pointer<mln_custom_mvt_vector_source_options> options,
+  Pointer<mln_custom_vector_source_options> options,
   Pointer<mln_completion> completion,
   Pointer<mln_diagnostic> out_diagnostic,
 );
@@ -3150,7 +3150,7 @@ external int mln_map_invalidate_custom_geometry_source_tile(
     Pointer<mln_diagnostic>,
   )
 >()
-external int mln_map_invalidate_custom_mvt_vector_source_tile(
+external int mln_map_invalidate_custom_vector_source_tile(
   int map,
   mln_buffer_view source_id,
   mln_canonical_tile_id tile_id,
@@ -3536,15 +3536,17 @@ external int mln_map_set_custom_geometry_source_tile_error(
     mln_map,
     mln_buffer_view,
     mln_canonical_tile_id,
+    Uint32,
     mln_buffer_view,
     Pointer<mln_completion>,
     Pointer<mln_diagnostic>,
   )
 >()
-external int mln_map_set_custom_mvt_vector_source_tile_data(
+external int mln_map_set_custom_vector_source_tile_data(
   int map,
   mln_buffer_view source_id,
   mln_canonical_tile_id tile_id,
+  int encoding,
   mln_buffer_view data,
   Pointer<mln_completion> completion,
   Pointer<mln_diagnostic> out_diagnostic,
@@ -3560,7 +3562,7 @@ external int mln_map_set_custom_mvt_vector_source_tile_data(
     Pointer<mln_diagnostic>,
   )
 >()
-external int mln_map_set_custom_mvt_vector_source_tile_error(
+external int mln_map_set_custom_vector_source_tile_error(
   int map,
   mln_buffer_view source_id,
   mln_canonical_tile_id tile_id,

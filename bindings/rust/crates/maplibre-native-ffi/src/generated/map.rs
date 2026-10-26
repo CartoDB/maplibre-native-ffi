@@ -38,21 +38,21 @@ impl MapHandle {
         })
     }
 
-    /// Adds a custom MVT vector source. The callback may run on any native
-    /// worker thread, concurrently with runtime and map calls.
+    /// Adds a custom vector source. The callback may run on any native worker
+    /// thread, concurrently with runtime and map calls.
     ///
-    /// See `mln_map_add_custom_mvt_vector_source` in the
+    /// See `mln_map_add_custom_vector_source` in the
     /// [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/style_8h.html).
-    pub fn add_custom_mvt_vector_source(
+    pub fn add_custom_vector_source(
         &self,
         source_id: &str,
-        options: CustomMvtVectorSourceOptions,
+        options: CustomVectorSourceOptions,
     ) -> Result<NativeFuture<CommandCompletion>> {
         let mut call = self.inner.call();
         let source_id = call.input(&source_id)?;
         let options = call.reference(&options)?;
         call.command(|map, completion, out_diagnostic| unsafe {
-            sys::mln_map_add_custom_mvt_vector_source(
+            sys::mln_map_add_custom_vector_source(
                 map,
                 source_id,
                 options,
@@ -1129,11 +1129,11 @@ impl MapHandle {
         })
     }
 
-    /// Invalidates custom MVT vector source data for one canonical tile.
+    /// Invalidates custom vector source data for one canonical tile.
     ///
-    /// See `mln_map_invalidate_custom_mvt_vector_source_tile` in the
+    /// See `mln_map_invalidate_custom_vector_source_tile` in the
     /// [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/style_8h.html).
-    pub fn invalidate_custom_mvt_vector_source_tile(
+    pub fn invalidate_custom_vector_source_tile(
         &self,
         source_id: &str,
         tile_id: CanonicalTileId,
@@ -1142,7 +1142,7 @@ impl MapHandle {
         let source_id = call.input(&source_id)?;
         let tile_id = call.input(&tile_id)?;
         call.command(|map, completion, out_diagnostic| unsafe {
-            sys::mln_map_invalidate_custom_mvt_vector_source_tile(
+            sys::mln_map_invalidate_custom_vector_source_tile(
                 map,
                 source_id,
                 tile_id,
@@ -1414,14 +1414,15 @@ impl MapHandle {
         })
     }
 
-    /// Sets custom MVT vector source data for one canonical tile.
+    /// Sets custom vector source data for one canonical tile.
     ///
-    /// See `mln_map_set_custom_mvt_vector_source_tile_data` in the
+    /// See `mln_map_set_custom_vector_source_tile_data` in the
     /// [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/style_8h.html).
-    pub fn set_custom_mvt_vector_source_tile_data(
+    pub fn set_custom_vector_source_tile_data(
         &self,
         source_id: &str,
         tile_id: CanonicalTileId,
+        encoding: StyleVectorTileEncoding,
         data: &[u8],
     ) -> Result<NativeFuture<CommandCompletion>> {
         let mut call = self.inner.call();
@@ -1429,10 +1430,11 @@ impl MapHandle {
         let tile_id = call.input(&tile_id)?;
         let data = call.input(&data)?;
         call.command(|map, completion, out_diagnostic| unsafe {
-            sys::mln_map_set_custom_mvt_vector_source_tile_data(
+            sys::mln_map_set_custom_vector_source_tile_data(
                 map,
                 source_id,
                 tile_id,
+                encoding.as_raw(),
                 data,
                 completion,
                 out_diagnostic,
@@ -1440,11 +1442,11 @@ impl MapHandle {
         })
     }
 
-    /// Reports a custom MVT vector source error for one canonical tile.
+    /// Reports a custom vector source error for one canonical tile.
     ///
-    /// See `mln_map_set_custom_mvt_vector_source_tile_error` in the
+    /// See `mln_map_set_custom_vector_source_tile_error` in the
     /// [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/style_8h.html).
-    pub fn set_custom_mvt_vector_source_tile_error(
+    pub fn set_custom_vector_source_tile_error(
         &self,
         source_id: &str,
         tile_id: CanonicalTileId,
@@ -1455,7 +1457,7 @@ impl MapHandle {
         let tile_id = call.input(&tile_id)?;
         let message = call.input(&message)?;
         call.command(|map, completion, out_diagnostic| unsafe {
-            sys::mln_map_set_custom_mvt_vector_source_tile_error(
+            sys::mln_map_set_custom_vector_source_tile_error(
                 map,
                 source_id,
                 tile_id,
@@ -1920,21 +1922,21 @@ impl MapHandleDiscarding<'_> {
         })
     }
 
-    /// Adds a custom MVT vector source. The callback may run on any native
-    /// worker thread, concurrently with runtime and map calls.
+    /// Adds a custom vector source. The callback may run on any native worker
+    /// thread, concurrently with runtime and map calls.
     ///
-    /// See `mln_map_add_custom_mvt_vector_source` in the
+    /// See `mln_map_add_custom_vector_source` in the
     /// [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/style_8h.html).
-    pub fn add_custom_mvt_vector_source(
+    pub fn add_custom_vector_source(
         &self,
         source_id: &str,
-        options: CustomMvtVectorSourceOptions,
+        options: CustomVectorSourceOptions,
     ) -> Result<()> {
         let mut call = self.0.inner.call();
         let source_id = call.input(&source_id)?;
         let options = call.reference(&options)?;
         call.discard(|map, completion, out_diagnostic| unsafe {
-            sys::mln_map_add_custom_mvt_vector_source(
+            sys::mln_map_add_custom_vector_source(
                 map,
                 source_id,
                 options,
@@ -2197,11 +2199,11 @@ impl MapHandleDiscarding<'_> {
         })
     }
 
-    /// Invalidates custom MVT vector source data for one canonical tile.
+    /// Invalidates custom vector source data for one canonical tile.
     ///
-    /// See `mln_map_invalidate_custom_mvt_vector_source_tile` in the
+    /// See `mln_map_invalidate_custom_vector_source_tile` in the
     /// [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/style_8h.html).
-    pub fn invalidate_custom_mvt_vector_source_tile(
+    pub fn invalidate_custom_vector_source_tile(
         &self,
         source_id: &str,
         tile_id: CanonicalTileId,
@@ -2210,7 +2212,7 @@ impl MapHandleDiscarding<'_> {
         let source_id = call.input(&source_id)?;
         let tile_id = call.input(&tile_id)?;
         call.discard(|map, completion, out_diagnostic| unsafe {
-            sys::mln_map_invalidate_custom_mvt_vector_source_tile(
+            sys::mln_map_invalidate_custom_vector_source_tile(
                 map,
                 source_id,
                 tile_id,
@@ -2374,14 +2376,15 @@ impl MapHandleDiscarding<'_> {
         })
     }
 
-    /// Sets custom MVT vector source data for one canonical tile.
+    /// Sets custom vector source data for one canonical tile.
     ///
-    /// See `mln_map_set_custom_mvt_vector_source_tile_data` in the
+    /// See `mln_map_set_custom_vector_source_tile_data` in the
     /// [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/style_8h.html).
-    pub fn set_custom_mvt_vector_source_tile_data(
+    pub fn set_custom_vector_source_tile_data(
         &self,
         source_id: &str,
         tile_id: CanonicalTileId,
+        encoding: StyleVectorTileEncoding,
         data: &[u8],
     ) -> Result<()> {
         let mut call = self.0.inner.call();
@@ -2389,10 +2392,11 @@ impl MapHandleDiscarding<'_> {
         let tile_id = call.input(&tile_id)?;
         let data = call.input(&data)?;
         call.discard(|map, completion, out_diagnostic| unsafe {
-            sys::mln_map_set_custom_mvt_vector_source_tile_data(
+            sys::mln_map_set_custom_vector_source_tile_data(
                 map,
                 source_id,
                 tile_id,
+                encoding.as_raw(),
                 data,
                 completion,
                 out_diagnostic,
@@ -2400,11 +2404,11 @@ impl MapHandleDiscarding<'_> {
         })
     }
 
-    /// Reports a custom MVT vector source error for one canonical tile.
+    /// Reports a custom vector source error for one canonical tile.
     ///
-    /// See `mln_map_set_custom_mvt_vector_source_tile_error` in the
+    /// See `mln_map_set_custom_vector_source_tile_error` in the
     /// [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/style_8h.html).
-    pub fn set_custom_mvt_vector_source_tile_error(
+    pub fn set_custom_vector_source_tile_error(
         &self,
         source_id: &str,
         tile_id: CanonicalTileId,
@@ -2415,7 +2419,7 @@ impl MapHandleDiscarding<'_> {
         let tile_id = call.input(&tile_id)?;
         let message = call.input(&message)?;
         call.discard(|map, completion, out_diagnostic| unsafe {
-            sys::mln_map_set_custom_mvt_vector_source_tile_error(
+            sys::mln_map_set_custom_vector_source_tile_error(
                 map,
                 source_id,
                 tile_id,

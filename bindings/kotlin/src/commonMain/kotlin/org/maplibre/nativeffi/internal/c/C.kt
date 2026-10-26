@@ -84,7 +84,7 @@ internal expect object C {
     outDiagnostic: Long,
   ): Int
 
-  fun mln_map_add_custom_mvt_vector_source(
+  fun mln_map_add_custom_vector_source(
     map: Long,
     sourceId: Long,
     options: Long,
@@ -382,7 +382,7 @@ internal expect object C {
     outDiagnostic: Long,
   ): Int
 
-  fun mln_map_invalidate_custom_mvt_vector_source_tile(
+  fun mln_map_invalidate_custom_vector_source_tile(
     map: Long,
     sourceId: Long,
     tileId: Long,
@@ -532,16 +532,17 @@ internal expect object C {
     outDiagnostic: Long,
   ): Int
 
-  fun mln_map_set_custom_mvt_vector_source_tile_data(
+  fun mln_map_set_custom_vector_source_tile_data(
     map: Long,
     sourceId: Long,
     tileId: Long,
+    encoding: Int,
     data: Long,
     completion: Long,
     outDiagnostic: Long,
   ): Int
 
-  fun mln_map_set_custom_mvt_vector_source_tile_error(
+  fun mln_map_set_custom_vector_source_tile_error(
     map: Long,
     sourceId: Long,
     tileId: Long,
