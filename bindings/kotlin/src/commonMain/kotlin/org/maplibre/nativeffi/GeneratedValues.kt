@@ -2957,6 +2957,8 @@ public data class StyleImageInfo(
   public val pixelRatio: Float,
   /** Whether the image is a signed distance field icon. */
   public val sdf: Boolean,
+  /** Whether the map keeps the image once no loaded tile uses it. */
+  public val keepUnused: Boolean,
 ) {
   private fun contentFields(): Array<Any?> =
     arrayOf(
@@ -2970,6 +2972,7 @@ public data class StyleImageInfo(
       textFitHeight,
       pixelRatio,
       sdf,
+      keepUnused,
     )
 
   override fun equals(other: Any?): Boolean =
@@ -3087,6 +3090,8 @@ public data class StyleImageOptions(
   public val pixelRatio: Float? = null,
   /** Whether the image is a signed distance field icon. Absent selects false. */
   public val sdf: Boolean? = null,
+  /** Keeps the image once no loaded tile uses it. Absent selects false. */
+  public val keepUnused: Boolean? = null,
 )
 
 /**

@@ -3709,6 +3709,9 @@ class StyleImageInfo:
     sdf: bool
     """Whether the image is a signed distance field icon."""
 
+    keep_unused: bool
+    """Whether the map keeps the image once no loaded tile uses it."""
+
     @classmethod
     def _from_native(cls, raw):
         return cls(
@@ -3726,6 +3729,7 @@ class StyleImageInfo:
             text_fit_height=_maybe(StyleImageTextFit, raw["text_fit_height"]),
             pixel_ratio=raw["pixel_ratio"],
             sdf=raw["sdf"],
+            keep_unused=raw["keep_unused"],
         )
 
 
@@ -3758,6 +3762,9 @@ class StyleImageOptions:
     sdf: bool | None = None
     """Whether the image is a signed distance field icon. Absent selects false."""
 
+    keep_unused: bool | None = None
+    """Keeps the image once no loaded tile uses it. Absent selects false."""
+
     def __post_init__(self):
         object.__setattr__(self, "stretch_x", _sequence(self.stretch_x))
         object.__setattr__(self, "stretch_y", _sequence(self.stretch_y))
@@ -3776,6 +3783,7 @@ class StyleImageOptions:
             text_fit_height=_maybe(StyleImageTextFit, raw["text_fit_height"]),
             pixel_ratio=raw["pixel_ratio"],
             sdf=raw["sdf"],
+            keep_unused=raw["keep_unused"],
         )
 
 

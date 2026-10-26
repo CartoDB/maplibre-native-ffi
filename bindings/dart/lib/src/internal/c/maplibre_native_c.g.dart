@@ -1385,6 +1385,8 @@ final class mln_style_image_info extends Struct {
   external double pixel_ratio;
   @Bool()
   external bool sdf;
+  @Bool()
+  external bool keep_unused;
 }
 
 final class mln_style_image_options extends Struct {
@@ -1407,6 +1409,8 @@ final class mln_style_image_options extends Struct {
   external double pixel_ratio;
   @Bool()
   external bool sdf;
+  @Bool()
+  external bool keep_unused;
 }
 
 final class mln_style_layer_info extends Struct {
@@ -2151,6 +2155,7 @@ const MLN_STYLE_IMAGE_OPTION_STRETCH_Y = 8;
 const MLN_STYLE_IMAGE_OPTION_CONTENT = 16;
 const MLN_STYLE_IMAGE_OPTION_TEXT_FIT_WIDTH = 32;
 const MLN_STYLE_IMAGE_OPTION_TEXT_FIT_HEIGHT = 64;
+const MLN_STYLE_IMAGE_OPTION_KEEP_UNUSED = 128;
 
 // mln_style_image_text_fit
 const MLN_STYLE_IMAGE_TEXT_FIT_STRETCH_OR_SHRINK = 0;

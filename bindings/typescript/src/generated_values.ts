@@ -2875,6 +2875,10 @@ export interface StyleImageInfo {
    * Whether the image is a signed distance field icon.
    */
   readonly sdf: boolean;
+  /**
+   * Whether the map keeps the image once no loaded tile uses it.
+   */
+  readonly keepUnused: boolean;
 }
 
 /**
@@ -2912,6 +2916,10 @@ export interface StyleImageOptions {
    * Whether the image is a signed distance field icon. Absent selects false.
    */
   sdf?: boolean;
+  /**
+   * Keeps the image once no loaded tile uses it. Absent selects false.
+   */
+  keepUnused?: boolean;
 }
 
 /**

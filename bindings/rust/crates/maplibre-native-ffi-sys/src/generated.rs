@@ -398,6 +398,7 @@ pub const MLN_STYLE_IMAGE_OPTION_STRETCH_Y: mln_style_image_option_field = 8;
 pub const MLN_STYLE_IMAGE_OPTION_CONTENT: mln_style_image_option_field = 16;
 pub const MLN_STYLE_IMAGE_OPTION_TEXT_FIT_WIDTH: mln_style_image_option_field = 32;
 pub const MLN_STYLE_IMAGE_OPTION_TEXT_FIT_HEIGHT: mln_style_image_option_field = 64;
+pub const MLN_STYLE_IMAGE_OPTION_KEEP_UNUSED: mln_style_image_option_field = 128;
 pub type mln_style_image_text_fit = u32;
 pub const MLN_STYLE_IMAGE_TEXT_FIT_STRETCH_OR_SHRINK: mln_style_image_text_fit = 0;
 pub const MLN_STYLE_IMAGE_TEXT_FIT_STRETCH_ONLY: mln_style_image_text_fit = 1;
@@ -1415,6 +1416,7 @@ pub struct mln_style_image_info {
     pub text_fit_height: mln_style_image_text_fit,
     pub pixel_ratio: f32,
     pub sdf: bool,
+    pub keep_unused: bool,
 }
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
@@ -1430,6 +1432,7 @@ pub struct mln_style_image_options {
     pub text_fit_height: mln_style_image_text_fit,
     pub pixel_ratio: f32,
     pub sdf: bool,
+    pub keep_unused: bool,
 }
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]

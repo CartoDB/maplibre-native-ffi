@@ -1043,6 +1043,7 @@ internal unsafe struct mln_style_image_info
     public mln_style_image_text_fit text_fit_height;
     public float pixel_ratio;
     public byte sdf;
+    public byte keep_unused;
 }
 
 internal unsafe struct mln_style_image_options
@@ -1058,6 +1059,7 @@ internal unsafe struct mln_style_image_options
     public mln_style_image_text_fit text_fit_height;
     public float pixel_ratio;
     public byte sdf;
+    public byte keep_unused;
 }
 
 internal unsafe struct mln_style_layer_info
@@ -1871,6 +1873,7 @@ internal enum mln_style_image_option_field : uint
     MLN_STYLE_IMAGE_OPTION_CONTENT = 16,
     MLN_STYLE_IMAGE_OPTION_TEXT_FIT_WIDTH = 32,
     MLN_STYLE_IMAGE_OPTION_TEXT_FIT_HEIGHT = 64,
+    MLN_STYLE_IMAGE_OPTION_KEEP_UNUSED = 128,
 }
 
 internal enum mln_style_image_text_fit : uint

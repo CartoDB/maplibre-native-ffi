@@ -3962,6 +3962,7 @@ final class StyleImageInfo extends _Value {
     this.textFitHeight,
     this.pixelRatio = 0,
     this.sdf = false,
+    this.keepUnused = false,
   }) : pixels = Uint8List.fromList(
          pixels ?? const <int>[],
        ).asUnmodifiableView(),
@@ -3999,6 +4000,9 @@ final class StyleImageInfo extends _Value {
   /// Whether the image is a signed distance field icon.
   final bool sdf;
 
+  /// Whether the map keeps the image once no loaded tile uses it.
+  final bool keepUnused;
+
   @override
   List<Object?> get _members => [
     width,
@@ -4011,6 +4015,7 @@ final class StyleImageInfo extends _Value {
     textFitHeight,
     pixelRatio,
     sdf,
+    keepUnused,
   ];
   @override
   String toString() => _describe('StyleImageInfo', const [
@@ -4024,6 +4029,7 @@ final class StyleImageInfo extends _Value {
     'textFitHeight',
     'pixelRatio',
     'sdf',
+    'keepUnused',
   ]);
 }
 
@@ -4251,6 +4257,7 @@ final class StyleImageOptions extends _Value {
     this.textFitHeight,
     this.pixelRatio,
     this.sdf,
+    this.keepUnused,
   }) : stretchX = stretchX == null ? null : List.unmodifiable(stretchX),
        stretchY = stretchY == null ? null : List.unmodifiable(stretchY);
 
@@ -4275,6 +4282,9 @@ final class StyleImageOptions extends _Value {
   /// Whether the image is a signed distance field icon. Absent selects false.
   final bool? sdf;
 
+  /// Keeps the image once no loaded tile uses it. Absent selects false.
+  final bool? keepUnused;
+
   /// A copy of this value with the given members replaced.
   StyleImageOptions copyWith({
     List<ImageStretch>? stretchX,
@@ -4284,6 +4294,7 @@ final class StyleImageOptions extends _Value {
     StyleImageTextFit? textFitHeight,
     double? pixelRatio,
     bool? sdf,
+    bool? keepUnused,
   }) => StyleImageOptions(
     stretchX: stretchX ?? this.stretchX,
     stretchY: stretchY ?? this.stretchY,
@@ -4292,6 +4303,7 @@ final class StyleImageOptions extends _Value {
     textFitHeight: textFitHeight ?? this.textFitHeight,
     pixelRatio: pixelRatio ?? this.pixelRatio,
     sdf: sdf ?? this.sdf,
+    keepUnused: keepUnused ?? this.keepUnused,
   );
 
   @override
@@ -4303,6 +4315,7 @@ final class StyleImageOptions extends _Value {
     textFitHeight,
     pixelRatio,
     sdf,
+    keepUnused,
   ];
   @override
   String toString() => _describe('StyleImageOptions', const [
@@ -4313,6 +4326,7 @@ final class StyleImageOptions extends _Value {
     'textFitHeight',
     'pixelRatio',
     'sdf',
+    'keepUnused',
   ]);
 }
 
