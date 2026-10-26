@@ -28,6 +28,10 @@ covers its lines, as
 [Code coverage](docs/src/content/docs/development/overview.md#code-coverage)
 describes.
 
+A Linux host can run the Windows and FreeBSD suites locally, under Wine and in a
+virtual machine, as the
+[Overview](docs/src/content/docs/development/overview.md) describes.
+
 GPU objects that a test creates as the host come from `tests/graphics`. A test
 that only renders and reads back may attach a graphics device texture instead.
 The target or the build decides a skip, never the environment, so fix the CI
