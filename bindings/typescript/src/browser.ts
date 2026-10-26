@@ -1,8 +1,12 @@
-// The entry point for browsers.
-//
-// A page loads the browser module with loadModule() before any other call, and
-// imports the page's graphics objects into it for its render targets. A page
-// has no exit event that ends native work, so its runtimes end with it.
+/**
+ * The browser API: {@link loadModule}, which a page calls first, and imports of
+ * the page's graphics objects for render target descriptors. Everything else
+ * matches the default entry.
+ *
+ * @module browser
+ */
+
+// A page has no exit event that ends native work, so its runtimes end with it.
 
 export * from "./generated_operations.ts";
 export * from "./generated_values.ts";
