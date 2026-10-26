@@ -41,8 +41,8 @@ internal class SharedLoad {
 /**
  * The browser module that every generated call reaches through a `Symbol.for` global.
  *
- * Instantiating a module is asynchronous, so no call can load it on demand: `Maplibre.loadModule`
- * loads it, and every call before then throws.
+ * Instantiating a module is asynchronous, so no call can load it on demand: `loadWasmModule` loads
+ * it, and every call before then throws.
  */
 internal object ModuleLoader {
   private val shared = SharedLoad()
@@ -85,7 +85,7 @@ internal object ModuleLoader {
 }
 
 internal actual fun ensureNativeLibrary() {
-  check(ModuleLoader.loaded) { "the browser module is not loaded; call Maplibre.loadModule first" }
+  check(ModuleLoader.loaded) { "the browser module is not loaded; call loadWasmModule first" }
 }
 
 /** A loaded module has passed its C ABI version check already. */

@@ -33,8 +33,8 @@ internal object NativeLibrary {
   @Volatile private var loadedLibrary: LoadedLibrary? = null
 
   /**
-   * Loads the native library once, in the order that
-   * [org.maplibre.nativeffi.Maplibre.loadNativeLibrary] states.
+   * Loads the native library once, in the order that [org.maplibre.nativeffi.loadNativeLibrary]
+   * states.
    */
   fun load() {
     if (isLoaded()) {
@@ -265,7 +265,7 @@ internal object NativeLibrary {
       UnsatisfiedLinkError(
         "Unable to load native library $LIBRARY_NAME. Add a MapLibre native runtime JAR to " +
           "the classpath, put the library on java.library.path, or load it from an exact path " +
-          "with Maplibre.loadNativeLibrary(Path).",
+          "with loadNativeLibrary(Path).",
       )
     error.addSuppressed(cause)
     return error
