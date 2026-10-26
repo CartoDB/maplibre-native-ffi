@@ -140,7 +140,7 @@ export function getNetworkStatus(): NetworkStatus {
 }
 
 /**
- * Returns the process-wide `mln_plugin_register_v1` entry point; never null.
+ * Returns the process-wide plugin registration entry point; never null.
  *
  * See `mln_plugin_get_register_function_v1` in the
  * [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/plugin_8h.html).
@@ -205,7 +205,9 @@ export function setLogAsyncSeverityMask(mask: LogSeverityFlag): void {
 }
 
 /**
- * Installs a process-global MapLibre Native log callback.
+ * Installs a process-global MapLibre Native log callback. The callback runs
+ * asynchronously on the JavaScript thread that registered it, after native
+ * queues the call.
  *
  * See `mln_log_set_callback` in the
  * [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/logging_8h.html).
@@ -490,7 +492,8 @@ export class MapHandle extends Owner {
   declare [Symbol.dispose]: () => void;
 
   /**
-   * Adds a custom geometry source.
+   * Adds a custom geometry source. The callback runs asynchronously on the
+   * JavaScript thread that registered it, after native queues the call.
    *
    * See `mln_map_add_custom_geometry_source` in the
    * [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/style_8h.html).
@@ -513,7 +516,8 @@ export class MapHandle extends Owner {
   }
 
   /**
-   * Adds a custom MVT vector source.
+   * Adds a custom MVT vector source. The callback runs asynchronously on the
+   * JavaScript thread that registered it, after native queues the call.
    *
    * See `mln_map_add_custom_mvt_vector_source` in the
    * [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/style_8h.html).
@@ -1094,7 +1098,7 @@ export class MapHandle extends Owner {
   }
 
   /**
-   * Ends the innermost command group that `mln_map_begin_command_group()`
+   * Ends the innermost command group that `MapHandle.beginCommandGroup()`
    * began.
    *
    * See `mln_map_end_command_group` in the
@@ -1131,8 +1135,7 @@ export class MapHandle extends Owner {
   }
 
   /**
-   * Queries the global-state JSON object, including style defaults. Completion
-   * borrows one `mln_buffer_view` for the duration of the callback.
+   * Queries the global-state JSON object, including style defaults.
    *
    * See `mln_map_get_global_state` in the
    * [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/style_8h.html).
@@ -1795,7 +1798,7 @@ export class MapHandle extends Owner {
   }
 
   /**
-   * Submits copied axonometric rendering option fields.
+   * Submits axonometric rendering options.
    *
    * See `mln_map_set_projection_mode` in the
    * [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/camera_8h.html).
@@ -2022,7 +2025,8 @@ export class MapHandleDiscarding {
   }
 
   /**
-   * Adds a custom geometry source.
+   * Adds a custom geometry source. The callback runs asynchronously on the
+   * JavaScript thread that registered it, after native queues the call.
    *
    * See `mln_map_add_custom_geometry_source` in the
    * [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/style_8h.html).
@@ -2043,7 +2047,8 @@ export class MapHandleDiscarding {
   }
 
   /**
-   * Adds a custom MVT vector source.
+   * Adds a custom MVT vector source. The callback runs asynchronously on the
+   * JavaScript thread that registered it, after native queues the call.
    *
    * See `mln_map_add_custom_mvt_vector_source` in the
    * [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/style_8h.html).
@@ -2228,7 +2233,7 @@ export class MapHandleDiscarding {
   }
 
   /**
-   * Ends the innermost command group that `mln_map_begin_command_group()`
+   * Ends the innermost command group that `MapHandle.beginCommandGroup()`
    * began.
    *
    * See `mln_map_end_command_group` in the
@@ -2611,7 +2616,7 @@ export class MapHandleDiscarding {
   }
 
   /**
-   * Submits copied axonometric rendering option fields.
+   * Submits axonometric rendering options.
    *
    * See `mln_map_set_projection_mode` in the
    * [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/camera_8h.html).
@@ -2841,7 +2846,7 @@ export class MapProjectionHandle extends Owner {
   }
 
   /**
-   * Copies the projection camera into out_camera.
+   * Copies the projection camera.
    *
    * See `mln_map_projection_get_camera` in the
    * [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/projection_8h.html).
@@ -3012,12 +3017,12 @@ export class RenderSessionHandle extends Owner {
   }
 
   /**
-   * Ends every frame demand that has not started with
-   * `MLN_RENDER_RESULT_NO_UPDATE` and completes after earlier driver work has
-   * finished. A running demand finishes its attempt and ends any wait for a map
-   * update or a free slot. After completion, a new frame demand is required to
-   * render again, except that a pending still image submits its next demand
-   * itself; see `mln_map_request_still_image()`.
+   * Ends every frame demand that has not started with `RenderResult.noUpdate`
+   * and completes after earlier driver work has finished. A running demand
+   * finishes its attempt and ends any wait for a map update or a free slot.
+   * After completion, a new frame demand is required to render again, except
+   * that a pending still image submits its next demand itself; see
+   * `MapHandle.requestStillImage()`.
    *
    * See `mln_render_session_barrier` in the
    * [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/render__session_8h.html).
@@ -3081,9 +3086,7 @@ export class RenderSessionHandle extends Owner {
   }
 
   /**
-   * Drains every currently queued terminal frame result into an independently
-   * owned batch and borrows its view. The records remain stable until the batch
-   * is released.
+   * Drains every currently queued terminal frame result.
    *
    * See `mln_render_session_drain_frame_results` in the
    * [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/render__session_8h.html).
@@ -3125,9 +3128,7 @@ export class RenderSessionHandle extends Owner {
   }
 
   /**
-   * Starts a feature-extension query against the latest driver state. The
-   * completion borrows one `mln_buffer_view` holding UTF-8 JSON (value_count
-   * 1), valid only for the callback.
+   * Starts a feature-extension query against the latest driver state.
    *
    * See `mln_render_session_query_feature_extensions` in the
    * [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/query_8h.html).
@@ -3252,9 +3253,8 @@ export class RenderSessionHandle extends Owner {
   /**
    * Services every queued item for a caller-graphics-thread driver. The first
    * successful service call fixes the session's graphics-thread identity; later
-   * calls from another native thread return `MLN_STATUS_WRONG_THREAD`. The
-   * target context must be current. Core-worker sessions return
-   * `MLN_STATUS_INVALID_STATE`.
+   * calls from another native thread return `Status.wrongThread`. The target
+   * context must be current. Core-worker sessions return `Status.invalidState`.
    *
    * See `mln_render_session_service_driver_work` in the
    * [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/render__session_8h.html).
@@ -3478,9 +3478,8 @@ export class ResourceRequestHandle extends Owner {
 
   /**
    * Registers a callback that runs when MapLibre cancels a C API resource
-   * provider request. A request that is already cancelled registers nothing and
-   * reports true through out_cancelled, and the caller handles that
-   * cancellation itself.
+   * provider request. The callback runs asynchronously on the JavaScript thread
+   * that registered it, after native queues the call.
    *
    * See `mln_resource_request_set_cancel_callback` in the
    * [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/runtime_8h.html).
@@ -3831,7 +3830,9 @@ export class RuntimeHandle extends Owner {
   }
 
   /**
-   * Selects how runtime and map events reach the host.
+   * Selects how runtime and map events reach the host. The callback runs
+   * asynchronously on the JavaScript thread that registered it, after native
+   * queues the call.
    *
    * See `mln_runtime_set_event_handler` in the
    * [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/runtime_8h.html).
@@ -3857,6 +3858,8 @@ export class RuntimeHandle extends Owner {
 
   /**
    * Registers or replaces the runtime-scoped outgoing HTTP header transform.
+   * The callback runs asynchronously on the JavaScript thread that registered
+   * it, after native queues the call.
    *
    * See `mln_runtime_set_http_header_transform` in the
    * [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/runtime_8h.html).
@@ -3930,7 +3933,9 @@ export class RuntimeHandle extends Owner {
   }
 
   /**
-   * Registers or replaces a runtime-scoped network resource provider.
+   * Registers or replaces a runtime-scoped network resource provider. The
+   * callback runs asynchronously on the JavaScript thread that registered it,
+   * after native queues the call.
    *
    * See `mln_runtime_set_resource_provider` in the
    * [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/runtime_8h.html).
@@ -3946,6 +3951,8 @@ export class RuntimeHandle extends Owner {
 
   /**
    * Registers or updates a runtime-scoped URL transform for network resources.
+   * The callback runs asynchronously on the JavaScript thread that registered
+   * it, after native queues the call.
    *
    * See `mln_runtime_set_resource_transform` in the
    * [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/runtime_8h.html).
@@ -4046,7 +4053,9 @@ export class RuntimeHandleDiscarding {
   }
 
   /**
-   * Selects how runtime and map events reach the host.
+   * Selects how runtime and map events reach the host. The callback runs
+   * asynchronously on the JavaScript thread that registered it, after native
+   * queues the call.
    *
    * See `mln_runtime_set_event_handler` in the
    * [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/runtime_8h.html).
@@ -4060,6 +4069,8 @@ export class RuntimeHandleDiscarding {
 
   /**
    * Registers or replaces the runtime-scoped outgoing HTTP header transform.
+   * The callback runs asynchronously on the JavaScript thread that registered
+   * it, after native queues the call.
    *
    * See `mln_runtime_set_http_header_transform` in the
    * [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/runtime_8h.html).
@@ -4076,7 +4087,9 @@ export class RuntimeHandleDiscarding {
   }
 
   /**
-   * Registers or replaces a runtime-scoped network resource provider.
+   * Registers or replaces a runtime-scoped network resource provider. The
+   * callback runs asynchronously on the JavaScript thread that registered it,
+   * after native queues the call.
    *
    * See `mln_runtime_set_resource_provider` in the
    * [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/runtime_8h.html).
@@ -4094,6 +4107,8 @@ export class RuntimeHandleDiscarding {
 
   /**
    * Registers or updates a runtime-scoped URL transform for network resources.
+   * The callback runs asynchronously on the JavaScript thread that registered
+   * it, after native queues the call.
    *
    * See `mln_runtime_set_resource_transform` in the
    * [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/runtime_8h.html).
@@ -4177,7 +4192,7 @@ export class StyleExpressionHandle extends Owner {
   }
 
   /**
-   * Copies what a parsed expression depends on into out_info.
+   * Copies what a parsed expression depends on.
    *
    * See `mln_style_expression_get_info` in the
    * [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/style__expression_8h.html).
