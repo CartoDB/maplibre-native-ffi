@@ -27,7 +27,7 @@ pub(crate) unsafe fn state<'a, S>(user_data: *mut c_void) -> &'a S {
 }
 
 /// The registration's callback, which a trampoline runs only when it is set.
-pub(crate) fn require<T: ?Sized>(callback: &Option<std::sync::Arc<T>>) -> Result<&T> {
+pub(crate) fn require<C: std::ops::Deref>(callback: &Option<C>) -> Result<&C::Target> {
     callback
         .as_deref()
         .ok_or_else(|| Error::invalid_argument("missing callback"))
@@ -99,6 +99,19 @@ pub(crate) fn invoke_status(
         Err(payload) => {
             report_panic(callback, payload);
             failure
+        }
+    }
+}
+
+/// Takes a queued delivery's owned handles for the `callback` that adopts
+/// them, and reports whether it may run. A failure reaches the reporter, and
+/// the batch keeps the handles, which it releases.
+pub(crate) fn taken(callback: &'static str, take: &dyn Fn() -> Result<()>) -> bool {
+    match take() {
+        Ok(()) => true,
+        Err(error) => {
+            report_error(callback, error);
+            false
         }
     }
 }

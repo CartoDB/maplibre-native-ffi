@@ -178,10 +178,17 @@ class RustEmitterTests(unittest.TestCase):
         # A closure bound cannot name its arguments, so the field's doc does.
         self.assertIn(
             "    /// The callback receives (`severity`, `event`, `code`, `message`).\n"
-            "    pub callback: std::sync::Arc<dyn ",
+            "    pub callback: Callback<K, dyn ",
             values,
         )
         self.assertIn("Fn(LogSeverity, LogEvent, i64, &str) -> bool", values)
+        # A queued registration's shared constructor takes a closure that
+        # crosses threads, and its local one any closure.
+        self.assertIn(
+            "F: Fn(LogSeverity, LogEvent, i64, &str) -> bool + Send + Sync + 'static",
+            values,
+        )
+        self.assertIn("impl LogHandler<Local> {", values)
         self.assertIn('callback::invoke("mln_log_callback", false, ||', values)
 
     def test_docs_name_the_rust_symbols_of_c_declarations(self):
@@ -311,12 +318,19 @@ void mln_query_release(mln_query query);
             sys_crate = root / "crates/maplibre-native-ffi-sys/src"
             safe_crate = root / "crates/maplibre-native-ffi/src"
             shutil.copy(SYS / "lib.rs", sys_crate / "lib.rs")
-            # The probe's own APIs need only what its fixture headers declare.
+            # The probe's own APIs need only what its fixture headers declare,
+            # which leave out the binding-support exports and the delivery
+            # protocol.
+            omitted = {"binding_support", "delivery"}
             for source in (CRATES / "maplibre-native-ffi/src").glob("*.rs"):
-                if source.name != "binding_support.rs":
+                if source.stem not in omitted:
                     shutil.copy(source, safe_crate / source.name)
             lib = safe_crate / "lib.rs"
-            lib.write_text(lib.read_text().replace("mod binding_support;\n", ""))
+            text = lib.read_text()
+            for module in omitted:
+                text = text.replace(f"mod {module};\n", "")
+                text = re.sub(rf"pub use {module}::\{{[^}}]*\}};\n", "", text)
+            lib.write_text(text)
             shutil.copy(PROBE / "probe.rs", safe_crate / "probe.rs")
             with (safe_crate / "lib.rs").open("a") as lib:
                 lib.write("\nmod probe;\n\nfn main() {\n    probe::run();\n}\n")
