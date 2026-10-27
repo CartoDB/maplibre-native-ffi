@@ -41,51 +41,33 @@ environment rather than skip a test.
 ## Documentation
 
 Documentation describes the library as it is, for a reader who does not know its
-history. When a code change makes text wrong or changes what a reader would do,
-fix that text in place. Notes about what changed ("now", "no longer", migration
-steps) belong in the PR description.
+history. Change it when a code change makes existing text wrong or changes what
+a reader would do, and fix that text in place. Notes about what changed ("now",
+"no longer", migration steps) belong in the PR description.
 
-Each layer has one reader and one job. Material for another layer moves there or
-is deleted.
+Each layer carries a different level of detail:
 
-| Layer                                                                           | Reader                                                      | Holds                                                                                | Excludes                                                  |
-| ------------------------------------------------------------------------------- | ----------------------------------------------------------- | ------------------------------------------------------------------------------------ | --------------------------------------------------------- |
-| Site, in `docs/src/content/docs/`                                               | someone integrating the library                             | fit, installation, platform setup, guides for the common path, a few concepts        | edge cases, per-binding caveats, exact contracts, history |
-| C reference: header comments, rendered by Doxygen                               | C users, binding authors, anyone checking an exact contract | each declaration's behavior and ABI                                                  | engine teaching, implementation                           |
-| Binding reference: each binding's doc comments, rendered by its language's tool | users of one binding                                        | the package overview, and each declaration's behavior in the binding's names         | ABI, other bindings                                       |
-| READMEs, root and per package                                                   | someone deciding what this is, often on a registry page     | one paragraph, one install line, links                                               | everything else                                           |
-| `CONTRIBUTING.md`                                                               | contributors, human or agent                                | where to discuss and start, and steps that the code and task descriptions cannot say | rules, history                                            |
-| `AGENTS.md`                                                                     | agents and reviewers                                        | priorities and rules                                                                 | how-to steps                                              |
-| Code comments                                                                   | the next editor of that code                                | a non-obvious choice, where it is made                                               | narration, inventories                                    |
+- Site pages in `docs/src/content/docs/` help a user integrate the library,
+  complete a task, or understand a concept. They cover the common path. Edge
+  cases, per-binding caveats, and exact contracts belong in the reference.
+- C header comments are the contract: behavior, plus the calling convention and
+  memory ownership that C callers rely on.
+- Each binding's doc comments restate that behavior in the binding's names,
+  without the C calling convention. Its package overview says once how the
+  binding reports errors, delivers completions, and closes handles.
+- `CONTRIBUTING.md` explains project-specific decisions to contributors.
 
-No layer narrates how the code is implemented or lists what the code already
-holds.
-
-A C declaration's contract mixes three kinds of content:
-
-- Behavior: what it does, ordering, engine surprises, conditions a caller can
-  trigger, host-resource lifetimes, which threads run a callback, and which
-  targets have it. State it once, in the C header. A binding restates it in its
-  own names and types.
-- ABI, the calling convention and memory ownership: `size` and `fields`,
-  out-parameters, buffer views, borrowed or copied, `user_data`, and null or
-  undersized pointers. It belongs only in the C reference.
-- Binding mechanism: how a binding surfaces failures and completions, closes
-  handles, adds its own errors, and runs callbacks under a delivery queue. State
-  it once, in that binding's package overview.
+No doc narrates how the code is implemented; a comment inside the code explains
+a non-obvious choice where it is made.
 
 Readers know their language but often not MapLibre, and many read English as a
-second language, so say what the API does in literal terms. Define a term before
-you use it, or don't use it.
-
-Make behavior unsurprising rather than document a surprise. A contract that is
-awkward to state is a design smell: state the shortest complete contract of the
-current behavior, and name the smell in the PR description, never in the docs.
+second language, so say what the API does in literal terms. A contract that is
+awkward to state is a design smell: document the current behavior plainly and
+name the smell in the PR description.
 
 The guides embed C examples from `docs/snippets/c/`, which
-`//docs:check-snippets` syntax-checks against the headers, so examples stay
-correct as the API changes. Add or update a snippet file for each C example
-rather than write C in a page.
+`//docs:check-snippets` compiles against the headers. Add or update a snippet
+file for each C example rather than write C in a page.
 
 The site's Development section holds only what maintainers need and the code
 cannot say:
