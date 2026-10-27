@@ -24,6 +24,33 @@ body:
       description: What did you expect to happen?
     validations:
       required: true
+  - type: dropdown
+    id: binding
+    attributes:
+      label: Binding
+      description: Which packages did you use?
+      multiple: true
+      options:
+        - C API
+        - Dart
+        - Go
+        - Kotlin
+        - .NET
+        - Python
+        - Rust
+        - Swift
+        - TypeScript
+        - Zig
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Package version
+      description:
+        Version of the packages you used. Every package shares one version.
+    validations:
+      required: true
   - type: input
     id: platform
     attributes:
@@ -35,7 +62,8 @@ body:
     id: render-backend
     attributes:
       label: Render backend
-      description: Render backend in use, such as Metal, Vulkan, or OpenGL/EGL.
+      description:
+        Render backend in use, such as Metal, Vulkan, OpenGL/EGL, or WebGPU.
     validations:
       required: false
   - type: input
@@ -43,6 +71,7 @@ body:
     attributes:
       label: Commit
       description:
-        Commit SHA or branch you tested against (e.g. `main` at abc1234)
+        If you built from source, the commit SHA or branch (e.g. `main` at
+        abc1234).
     validations:
       required: false

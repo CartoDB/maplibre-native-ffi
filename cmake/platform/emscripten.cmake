@@ -14,7 +14,6 @@ function(mln_ffi_configure_platform_dependencies target)
       -fwasm-exceptions
       "-sFETCH=1"
       "-sUSE_ZLIB=1")
-  # TODO: Use SIDE_MODULE when pthread dynamic linking is stable.
   set_target_properties(
     ${target}
     PROPERTIES
@@ -22,6 +21,8 @@ function(mln_ffi_configure_platform_dependencies target)
       TRUE
       MLN_FFI_DEFAULT_THREAD_LOCAL
       TRUE
+      # Emscripten's dynamic linking (SIDE_MODULE) is experimental with
+      # pthreads, which this build requires.
       MLN_FFI_SHARED_SUPPORTED
       FALSE
       MLN_FFI_ARCHIVE_FORMAT

@@ -121,6 +121,7 @@ jobs:
       - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
         with:
           packages: platform-tools platforms;android-${{ steps.android.outputs.compile-sdk }}
+      - run: mise run //docs:api
       - run: mise run //docs:build
   target:
     name: target / ${{ matrix.preset }}

@@ -20,7 +20,7 @@
 
 [![MapLibre](https://img.shields.io/badge/MapLibre-396CB2)](https://maplibre.org/)
 [![Slack](https://img.shields.io/badge/Slack-4A154B?logo=slack&logoColor=white)](https://slack.openstreetmap.us/)
-[![License](https://img.shields.io/github/license/sargunv/maplibre-native-ffi?label=License)](./LICENSE)
+[![License](https://img.shields.io/github/license/maplibre/maplibre-native-ffi?label=License)](./LICENSE)
 
 This project provides an experimental C API for
 [MapLibre Native](https://github.com/maplibre/maplibre-native). It is built for

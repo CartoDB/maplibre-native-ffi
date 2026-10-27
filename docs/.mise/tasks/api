@@ -1,16 +1,15 @@
 #!/usr/bin/env bash
-#MISE description="Generate every language's API reference into public/reference"
+#MISE description="Generate every binding's API reference into public/reference"
 #MISE shell="bash"
 #MISE depends=[{ task = "//:build", args = ["{{vars.host_native_preset}}"] }, "//bindings/kotlin:api", "//bindings/dart:api", "//bindings/python:api", "//bindings/dotnet:api", "//bindings/go:api", "//bindings/swift:api", "//bindings/typescript:api"]
 #MISE env={ MAPLIBRE_NATIVE_FFI_LOCAL_BUILD = "{{config_root}}/../build/{{vars.host_native_preset}}/install" }
 set -euo pipefail
 
 reference="$PWD/public/reference"
-rm -rf "$reference" doxygen/gen
-mkdir -p "$reference" doxygen/gen
-
-doxygen doxygen/Doxyfile
-cp -a doxygen/gen/html/. "$reference/c/"
+for binding in rust zig kotlin dart python dotnet go swift typescript; do
+  rm -rf "${reference:?}/$binding"
+done
+mkdir -p "$reference"
 
 (
   cd ..

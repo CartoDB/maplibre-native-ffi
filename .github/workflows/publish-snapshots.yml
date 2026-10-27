@@ -167,6 +167,9 @@ jobs:
           mise run install-native-package linux-gnu-x64-vulkan
           build/packages/native/docs-input/maplibre-native-c-linux-gnu-x64-vulkan.tar.gz
       - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+      - run: mise run //docs:api
+        env:
+          MISE_TASK_SKIP: "//:build"
       - run: mise run //docs:build
         env:
           MISE_TASK_SKIP: "//:build"
