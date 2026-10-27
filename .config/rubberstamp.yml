@@ -322,8 +322,10 @@ ci:
               - tests/native/abi/platform/transport.c
               - bindings/typescript/scripts/build-hap.sh
               - bindings/typescript/scripts/test-arkts.sh
+              - bindings/typescript/scripts/verify-ohpm.sh
               - bindings/typescript/src/arkts.ts
               - bindings/typescript/test/arkts/**
+              - bindings/typescript/test/ohpm/**
               - tools/devices/ohos-key
               - third_party/maplibre-native
           then: apply
