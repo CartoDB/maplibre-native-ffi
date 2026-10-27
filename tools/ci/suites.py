@@ -61,6 +61,12 @@ SUITES: list[dict] = [
             },
         ],
     },
+    # A Linux runner cross-builds the FreeBSD suite, which runs in the FreeBSD
+    # virtual machine.
+    {
+        "platforms": ["freebsd"],
+        "commands": [{"task": "//bindings/zig:test"}],
+    },
     # Zig is unavailable on Windows ARM64; see the `core:zig` note in bindings/zig/mise.toml.
     {
         "platforms": ["linux-gnu", "macos", "windows"],
