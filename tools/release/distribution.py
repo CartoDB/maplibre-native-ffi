@@ -34,61 +34,10 @@ WRITERS = (
 README = """\
 # MapLibre Native FFI distribution
 
-This repository holds the packages of each
-[MapLibre Native FFI](https://github.com/maplibre/maplibre-native-ffi) release
-for package managers that read a Git repository. Each release updates its
-packages in one commit, tagged with the release's version. The vcpkg registry
-and the Conan recipe index retain earlier versions. Report issues and send
-changes to MapLibre Native FFI, since the next release overwrites this
-repository.
-
-## vcpkg
-
-Register this repository with a release commit as the baseline in
-`vcpkg-configuration.json`:
-
-```json
-{
-  "registries": [{
-    "kind": "git",
-    "repository": "https://github.com/maplibre/maplibre-native-ffi-distribution",
-    "baseline": "<release-commit>",
-    "packages": ["maplibre-native-c"]
-  }]
-}
-```
-
-Select exactly one renderer feature in your `vcpkg.json` dependencies, for
-example `{"name": "maplibre-native-c", "features": ["opengl"]}`. The other
-features are `metal` and `vulkan`; availability depends on the target platform.
-The package supplies Release binaries for both Debug and Release consumers.
-
-```cmake
-find_package(maplibre-native-c CONFIG REQUIRED)
-target_link_libraries(app PRIVATE maplibre-native-c::maplibre-native-c)
-```
-
-- [Install](https://maplibre.org/maplibre-native-ffi/install/)
-- [Guides](https://maplibre.org/maplibre-native-ffi/guides/create-a-map/)
-
-## Conan 2
-
-Clone this repository and register its path as a local recipe index:
-
-```sh
-git clone https://github.com/maplibre/maplibre-native-ffi-distribution.git
-conan remote add maplibre-native-ffi ./maplibre-native-ffi-distribution --type=local-recipes-index
-conan install --requires="maplibre-native-c/<version>" --build=missing -g CMakeDeps -g CMakeToolchain
-```
-
-Link `maplibre-native-c::maplibre-native-c` after
-`find_package(maplibre-native-c CONFIG REQUIRED)`. The recipe packages the
-complete static C library. Select a renderer with
-`-o "maplibre-native-c/*:backend=metal"`, `opengl`, `vulkan`, or `webgpu`;
-`default` selects the platform's default renderer. Linux defaults to glibc;
-select musl with `-o "maplibre-native-c/*:libc=musl"`. Windows consumers must
-select the static MSVC runtime with `-s compiler.runtime=static`. Run `git pull`
-in the clone to make new release versions available.
+Packages of [MapLibre Native FFI](https://github.com/maplibre/maplibre-native-ffi)
+releases for SwiftPM, vcpkg, Conan, and xmake. See
+[Install](https://maplibre.org/maplibre-native-ffi/install/) to use them, and
+report issues to MapLibre Native FFI.
 """
 
 

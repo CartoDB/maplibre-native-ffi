@@ -24,10 +24,11 @@ provider in place of the backend: `egl`, `wgl`, or `webgl`.
 
 ### Build against a prefix
 
-Download `maplibre-native-c-<preset>.tar.gz` and unpack it. The archive root is
-the install prefix. Its `share/maplibre-native-c/artifact.json` records the
-release `version` and the commit it was built from as `gitSha`, which matches a
-snapshot archive to its source after the snapshot moves on.
+Download `maplibre-native-c-<preset>.tar.gz` and unpack it. The directory it
+holds, `maplibre-native-c-<preset>`, is the install prefix. The prefix's
+`share/maplibre-native-c/artifact.json` records the release `version` and the
+commit it was built from as `gitSha`, which matches a snapshot archive to its
+source after the snapshot moves on.
 
 With CMake, set `maplibre-native-c_DIR` to the prefix's package config directory
 and link the imported target. This also works with cross-compilation toolchains
@@ -79,6 +80,60 @@ target("app")
 
 Omit `backend` to take the platform's default. On Linux, set `libc = "musl"` in
 `configs` when building for musl.
+
+### vcpkg
+
+Register the distribution repository as a Git registry. Its baseline is the
+commit that the release's tag names:
+
+```bash frame="terminal"
+git ls-remote https://github.com/maplibre/maplibre-native-ffi-distribution 'refs/tags/v{{version}}^{}'
+```
+
+```json title="vcpkg-configuration.json"
+{
+  "registries": [
+    {
+      "kind": "git",
+      "repository": "https://github.com/maplibre/maplibre-native-ffi-distribution",
+      "baseline": "<commit>",
+      "packages": ["maplibre-native-c"]
+    }
+  ]
+}
+```
+
+vcpkg also needs a baseline for its default registry. Keep the manifest's
+`builtin-baseline`, or set `"default-registry": null` when the project takes no
+other vcpkg packages.
+
+Select exactly one backend feature: `opengl`, `metal`, or `vulkan`. The port
+supplies Release binaries to both Debug and Release builds. Link the CMake
+target as for [a prefix](#build-against-a-prefix).
+
+```json title="vcpkg.json"
+{
+  "dependencies": [{ "name": "maplibre-native-c", "features": ["vulkan"] }]
+}
+```
+
+### Conan
+
+With Conan 2, clone the distribution repository and add it as a local recipe
+index. Pull the clone to see later releases.
+
+```bash frame="terminal"
+git clone https://github.com/maplibre/maplibre-native-ffi-distribution.git
+conan remote add maplibre-native-ffi ./maplibre-native-ffi-distribution --type=local-recipes-index
+conan install --requires="maplibre-native-c/{{version}}" --build=missing \
+  -o "maplibre-native-c/*:backend=vulkan" -g CMakeDeps -g CMakeToolchain
+```
+
+The recipe links the complete static library through the
+`maplibre-native-c::maplibre-native-c` target. `backend` takes `metal`,
+`opengl`, `vulkan`, `webgpu`, or `default`, the platform's default. On Linux,
+add `-o "maplibre-native-c/*:libc=musl"` for musl. On Windows, pass
+`-s compiler.runtime=static`.
 
 ### Add the XCFramework to an Apple app
 
