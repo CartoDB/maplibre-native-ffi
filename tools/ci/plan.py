@@ -71,7 +71,7 @@ JOBS = {
     "android-multi": ("android", lambda target: target.platform == "android"),
     # Every Metal preset is an Apple one, and each contributes one XCFramework
     # slice.
-    "apple-xcframework": ("apple-mobile", lambda target: target.backend == "metal"),
+    "apple-xcframework": ("swiftpm", lambda target: target.backend == "metal"),
     "kotlin-maven": (
         "maven",
         lambda target: target.platform in KOTLIN_MAVEN_PLATFORMS,

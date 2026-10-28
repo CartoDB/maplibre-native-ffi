@@ -249,7 +249,7 @@ class PresetTest(unittest.TestCase):
             "docs only": (False, ["docs"]),
             **{unit: (False, [unit]) for unit in units},
             "linux and maven": (False, ["linux-x64", "maven"]),
-            "apple": (False, ["macos", "apple-mobile"]),
+            "apple": (False, ["macos", "ios", "tvos", "visionos"]),
             "android and maven": (False, ["android", "maven"]),
             "web, ohos and freebsd": (False, ["web", "ohos", "freebsd"]),
             "every unit": (False, units),

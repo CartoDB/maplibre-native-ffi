@@ -253,21 +253,44 @@ ci:
               - bindings/kotlin/src/macosTest/**
               - third_party/maplibre-native
           then: apply
-    apple-mobile:
+    ios:
       covers: >-
-        iOS, Mac Catalyst, tvOS, and visionOS with Metal, on devices and
-        simulators. Builds the native library and the supported Kotlin, Swift,
-        Rust, and Dart bindings, builds the Swift example for iOS, runs
-        simulator tests, and packages the XCFramework. Catches mobile SDK,
-        cross-compilation, and framework packaging problems.
-        Platform-independent code that Linux x64 tests doesn't need it.
+        iOS and Mac Catalyst with Metal, on device and simulator. Builds the
+        native library and the supported Kotlin, Swift, Rust, Dart, and Zig
+        bindings, builds the Swift example for iOS, and runs simulator and Mac
+        Catalyst tests. Catches mobile SDK and cross-compilation problems, and
+        stands in for tvOS and visionOS on what every Apple mobile platform
+        shares. Platform-independent code that Linux x64 tests doesn't need it.
       rules:
         - if:
             files:
-              - .mise/tasks/package-xcframework
               - bindings/kotlin/src/iosTest/**
-              - bindings/kotlin/src/tvosTest/**
               - examples/swift-map/Sources/SwiftMapIOS/**
+              - third_party/maplibre-native
+          then: apply
+    tvos:
+      covers: >-
+        tvOS with Metal, on device and simulator. Builds the native library and
+        the Kotlin, Swift, and Rust bindings, and runs simulator tests. Only
+        what tvOS alone builds or runs needs it: tvOS conditionals, SDK setup,
+        presets, and suites. Changes that every Apple mobile platform shares
+        need only iOS.
+      rules:
+        - if:
+            files:
+              - bindings/kotlin/src/tvosTest/**
+              - third_party/maplibre-native
+          then: apply
+    visionos:
+      covers: >-
+        visionOS with Metal, on device and simulator. Builds the native library
+        and the Swift and Rust bindings, and runs simulator tests. Only what
+        visionOS alone builds or runs needs it: visionOS conditionals, SDK
+        setup, presets, and suites. Changes that every Apple mobile platform
+        shares need only iOS.
+      rules:
+        - if:
+            files:
               - third_party/maplibre-native
           then: apply
     windows-x64:
@@ -415,17 +438,19 @@ ci:
         changes and one ABI's addon don't.
     swiftpm:
       covers: >-
-        Writes the Swift package that a release pushes to the distribution
-        repository, with the XCFramework that the Apple Metal targets built,
-        then builds and runs the Swift example against it on macOS and builds it
-        for iOS, so it runs those targets. Only changes to what the package
-        contains or how it is written need it: the release's distribution tool,
-        the root manifest's platforms and binding target, and the C module
-        shims. Ordinary Swift binding changes and one Apple target's native
-        packaging don't.
+        Assembles the XCFramework from every Apple Metal target's slice, so it
+        runs those targets, and writes the Swift package that a release pushes
+        to the distribution repository with it. Then builds and runs the Swift
+        example against the package on macOS and builds it for iOS. Only changes
+        to what the XCFramework or the package contains or how it is assembled
+        need it: XCFramework packaging, the release's distribution tool, the
+        root manifest's platforms and binding target, and the C module shims.
+        Ordinary Swift binding changes and one Apple target's native packaging
+        don't.
       rules:
         - if:
             files:
+              - .mise/tasks/package-xcframework
               - tools/release/swift_package.py
               - bindings/swift/.mise/tasks/test/package
           then: apply

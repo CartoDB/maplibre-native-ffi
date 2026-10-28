@@ -144,7 +144,7 @@
       },
       "vendor": {
         "maplibre-native-ffi": {
-          "unit": "apple-mobile",
+          "unit": "ios",
           "runner": "blacksmith-6vcpu-macos-26"
         }
       }
@@ -164,7 +164,7 @@
       },
       "vendor": {
         "maplibre-native-ffi": {
-          "unit": "apple-mobile",
+          "unit": "tvos",
           "runner": "blacksmith-6vcpu-macos-26"
         }
       }
@@ -184,7 +184,7 @@
       },
       "vendor": {
         "maplibre-native-ffi": {
-          "unit": "apple-mobile",
+          "unit": "visionos",
           "runner": "blacksmith-6vcpu-macos-26"
         }
       }
