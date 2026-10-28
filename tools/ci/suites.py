@@ -55,7 +55,7 @@ SUITES: list[dict] = [
         "commands": [
             {"task": "//bindings/rust:test"},
             {"task": "//bindings/dotnet:test"},
-            {"task": "//bindings/go:test"},
+            {"task": "//bindings/go:test", "architectures": ["riscv64", "loongarch64"]},
             {
                 "task": "//bindings/zig:test",
                 "architectures": ["riscv64", "loongarch64"],
@@ -131,7 +131,9 @@ SUITES: list[dict] = [
     # virtual machine.
     {
         "platforms": ["linux-gnu", "macos", "freebsd"],
-        "commands": [{"task": "//bindings/go:test"}],
+        "commands": [
+            {"task": "//bindings/go:test", "architectures": ["riscv64", "loongarch64"]}
+        ],
     },
     # go-map drives OpenGL through EGL, on Linux only.
     {

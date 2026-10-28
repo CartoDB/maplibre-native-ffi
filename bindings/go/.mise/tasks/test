@@ -4,9 +4,10 @@
 #MISE shell="bash"
 set -euo pipefail
 
-# Host presets run in process; musl, FreeBSD, Android, and OpenHarmony x64
-# presets cross-build and run each test binary through tools/devices/run, which
-# runs it in Alpine, the worktree's FreeBSD virtual machine, or its emulator.
+# Host presets run in process; musl, FreeBSD, RISC-V, LoongArch, Android, and
+# OpenHarmony x64 presets cross-build and run each test binary through
+# tools/devices/run, which runs it in Alpine, the worktree's FreeBSD virtual
+# machine, QEMU, or its emulator.
 case "$usage_preset" in
   android-arm-*)
     echo "The Android emulator runs arm64 and x64 guests; check $usage_preset with //bindings/go:build and test an android-arm64 or android-x64 preset instead." >&2
