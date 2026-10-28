@@ -3,7 +3,8 @@
 // demand outlasts barriers and detachment until the image renders, and never
 // replaces a host demand or is replaced by one. A map in another mode refuses
 // the request, only one request is pending at a time, and closing the map
-// cancels the pending one.
+// cancels the pending one. A glyph range that failed one image doesn't hold up
+// the next.
 
 #include "support/frames.h"
 #include "support/map.h"
@@ -376,6 +377,47 @@ static void map_close_cancels_the_pending_still_image(void) {
   mln_test_destroy_runtime(runtime);
 }
 
+// One label whose glyph range the provider fails.
+static const char glyph_style_json[] =
+  "{\"version\":8,\"glyphs\":\"test://fonts/{fontstack}/{range}.pbf\","
+  "\"sources\":{\"points\":{\"type\":\"geojson\",\"data\":"
+  "{\"type\":\"Feature\",\"geometry\":{\"type\":\"Point\","
+  "\"coordinates\":[0,0]},\"properties\":{}}}},"
+  "\"layers\":[{\"id\":\"label\",\"type\":\"symbol\",\"source\":\"points\","
+  "\"layout\":{\"text-field\":\"A\",\"text-font\":[\"Font\"]}}]}";
+static const char glyph_url[] = "test://fonts/Font/0-255.pbf";
+static const mln_test_provided_resource failing_glyph_range[] = {
+  {.url = glyph_url,
+   .response = {
+     .status = MLN_RESOURCE_RESPONSE_STATUS_ERROR,
+     .error_reason = MLN_RESOURCE_ERROR_REASON_NOT_FOUND
+   }},
+};
+
+// The still image that meets a failed glyph range fails, and the next one
+// renders the label's tile without that range's glyphs instead of waiting for
+// them.
+static void a_failed_glyph_range_does_not_hold_up_the_next_still_image(void) {
+  mln_test_provider* provider =
+    mln_test_provider_create(failing_glyph_range, 1);
+  mln_runtime runtime = mln_test_create_runtime();
+  mln_test_provider_install(runtime, provider);
+  mln_map map = create_map_in_mode(runtime, MLN_MAP_MODE_STATIC);
+  mln_test_load_style_and_wait(map, MLN_BUFFER_LITERAL(glyph_style_json));
+  mln_test_render_fixture fixture = {0};
+  TEST_ASSERT_TRUE(mln_test_render_fixture_create(map, &fixture));
+
+  MLN_TEST_STATUS(
+    MLN_STATUS_NATIVE_ERROR, mln_test_render_still_image(&fixture, map)
+  );
+  MLN_TEST_OK(mln_test_render_still_image(&fixture, map));
+
+  mln_test_render_fixture_destroy(&fixture);
+  mln_test_destroy_map(map);
+  mln_test_destroy_runtime(runtime);
+  mln_test_provider_destroy(provider);
+}
+
 MLN_TEST_GROUP {
   RUN_TEST(a_static_map_renders_still_images);
   RUN_TEST(a_tile_map_session_resizes_between_still_images);
@@ -384,4 +426,5 @@ MLN_TEST_GROUP {
   RUN_TEST(host_demands_and_a_still_image_demand_never_replace_each_other);
   RUN_TEST(a_continuous_map_refuses_a_still_image);
   RUN_TEST(map_close_cancels_the_pending_still_image);
+  RUN_TEST(a_failed_glyph_range_does_not_hold_up_the_next_still_image);
 }
