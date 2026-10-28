@@ -1,8 +1,9 @@
-Lets renderers share the glyphs they parse through a GlyphCache that the
-caller gives each of them, so the maps of one runtime parse and keep each
-glyph once instead of once per map and font stack. Temporary: drop this patch
-when the submodule moves to a core that includes the pull request.
-Upstream: https://github.com/maplibre/maplibre-native/pull/4855 at 9b98bbfb
+Lets renderers share the glyphs they parse, and the glyph ranges they load,
+through a GlyphCache that the caller gives each of them, so the maps of one
+runtime parse and keep each glyph once instead of once per map and font
+stack. Temporary: drop this patch when the submodule moves to a core that
+includes the pull request.
+Upstream: https://github.com/maplibre/maplibre-native/pull/4855 at 9c408b74
 
 diff --git a/CMakeLists.txt b/CMakeLists.txt
 index 4e3ba38464..03ad5aef53 100644
@@ -61,7 +62,7 @@ index 4c5d61c281..e72aacd8be 100644
      "include/mln/tile/tile_id.hpp",
      "include/mln/tile/tile_operation.hpp",
 diff --git a/include/mln/renderer/renderer.hpp b/include/mln/renderer/renderer.hpp
-index 765af27742..5b0842651b 100644
+index 765af27742..82fd19f0b1 100644
 --- a/include/mln/renderer/renderer.hpp
 +++ b/include/mln/renderer/renderer.hpp
 @@ -11,6 +11,7 @@
@@ -76,7 +77,7 @@ index 765af27742..5b0842651b 100644
  
  class Renderer {
  public:
-+    // Renderers given the same GlyphCache share the glyphs they parse; without one, a renderer keeps its own.
++    // Renderers given the same GlyphCache share the glyphs they parse from glyph PBFs.
      Renderer(gfx::RendererBackend&,
               float pixelRatio_,
 -             const std::optional<std::string>& localFontFamily = std::nullopt);
@@ -85,24 +86,46 @@ index 765af27742..5b0842651b 100644
      ~Renderer();
  
      void markContextLost();
+diff --git a/include/mln/text/glyph.hpp b/include/mln/text/glyph.hpp
+index 16174b1101..2343b9d1e2 100644
+--- a/include/mln/text/glyph.hpp
++++ b/include/mln/text/glyph.hpp
+@@ -45,6 +45,7 @@ union GlyphID {
+ 
+     operator char16_t() { return complex.code; }
+     operator char32_t() { return hash; }
++    bool operator==(const GlyphID &other) const { return hash == other.hash; }
+     bool operator<(const GlyphID &other) const { return hash < other.hash; }
+     bool operator>(const GlyphID &other) const { return hash > other.hash; }
+ 
+@@ -86,6 +87,8 @@ public:
+ 
+     // Glyph metrics
+     GlyphMetrics metrics;
++
++    bool operator==(const Glyph &) const = default;
+ };
+ 
+ using Glyphs = std::map<GlyphID, std::optional<Immutable<Glyph>>>;
 diff --git a/include/mln/text/glyph_cache.hpp b/include/mln/text/glyph_cache.hpp
 new file mode 100644
-index 0000000000..5eded521d0
+index 0000000000..f5db7d407f
 --- /dev/null
 +++ b/include/mln/text/glyph_cache.hpp
-@@ -0,0 +1,29 @@
+@@ -0,0 +1,36 @@
 +#pragma once
 +
 +#include <mln/text/glyph.hpp>
 +#include <mln/util/immutable.hpp>
 +
 +#include <cstddef>
++#include <map>
 +#include <memory>
 +
 +namespace mln {
 +
-+// Parsed glyphs shared by the renderers given the same GlyphCache, matched by contents. It holds weak
-+// references only: a glyph is freed with its last owner. It can be shared between threads.
++// Keeps one copy of equal glyphs and glyph ranges. It only holds weak references, so it never keeps a glyph
++// alive. Thread-safe.
 +class GlyphCache {
 +public:
 +    GlyphCache();
@@ -110,9 +133,15 @@ index 0000000000..5eded521d0
 +    GlyphCache(const GlyphCache&) = delete;
 +    GlyphCache& operator=(const GlyphCache&) = delete;
 +
++    using Range = std::map<GlyphID, Immutable<Glyph>>;
++
 +    Immutable<Glyph> intern(Glyph&&);
 +
-+    std::size_t size();
++    // Ranges are matched by the glyphs they point to: intern the glyphs first.
++    std::shared_ptr<const Range> intern(Range&&);
++
++    // Glyphs alive, not counting ranges. Walks the whole table.
++    std::size_t size() const;
 +
 +private:
 +    class Impl;
@@ -270,10 +299,10 @@ index a7f3501943..ebc8b8b31a 100644
      // ContextObserver
 diff --git a/src/mln/text/glyph_cache.cpp b/src/mln/text/glyph_cache.cpp
 new file mode 100644
-index 0000000000..51aab260cb
+index 0000000000..03dbea93ad
 --- /dev/null
 +++ b/src/mln/text/glyph_cache.cpp
-@@ -0,0 +1,69 @@
+@@ -0,0 +1,88 @@
 +#include <mln/text/glyph_cache.hpp>
 +#include <mln/util/hash.hpp>
 +#include <mln/util/std.hpp>
@@ -290,28 +319,27 @@ index 0000000000..51aab260cb
 +
 +constexpr std::size_t minSweep = 4096;
 +
++template <class Table>
++void sweep(Table& table, std::size_t& nextSweep) {
++    util::erase_if(table, [](const auto& entry) { return entry.second.expired(); });
++    nextSweep = std::max(minSweep, 2 * table.size());
++}
++
 +std::size_t hashOf(const Glyph& glyph) {
 +    const auto& m = glyph.metrics;
 +    const std::string_view bitmap(reinterpret_cast<const char*>(glyph.bitmap.data.get()), glyph.bitmap.bytes());
 +    return util::hash(glyph.id.hash, m.width, m.height, m.left, m.top, m.advance, m.isDoubleResolution, bitmap);
 +}
 +
-+bool isSame(const Glyph& a, const Glyph& b) {
-+    return a.id.hash == b.id.hash && a.metrics == b.metrics && a.bitmap == b.bitmap;
-+}
-+
 +} // namespace
 +
 +class GlyphCache::Impl {
 +public:
-+    void sweep() {
-+        util::erase_if(glyphs, [](const auto& entry) { return entry.second.expired(); });
-+        nextSweep = std::max(minSweep, 2 * glyphs.size());
-+    }
-+
 +    std::mutex mutex;
 +    std::unordered_multimap<std::size_t, WeakImmutable<Glyph>> glyphs;
-+    std::size_t nextSweep = minSweep;
++    std::size_t nextGlyphSweep = minSweep;
++    std::unordered_multimap<std::size_t, std::weak_ptr<const Range>> ranges;
++    std::size_t nextRangeSweep = minSweep;
 +};
 +
 +GlyphCache::GlyphCache()
@@ -324,27 +352,47 @@ index 0000000000..51aab260cb
 +    std::scoped_lock lock(impl->mutex);
 +    auto [first, last] = impl->glyphs.equal_range(hash);
 +    for (auto it = first; it != last; ++it) {
-+        if (auto alive = it->second.lock(); alive && isSame(**alive, glyph)) {
++        if (auto alive = it->second.lock(); alive && **alive == glyph) {
 +            return *alive;
 +        }
 +    }
 +    Immutable<Glyph> added = makeMutable<Glyph>(std::move(glyph));
 +    impl->glyphs.emplace(hash, added);
-+    if (impl->glyphs.size() >= impl->nextSweep) {
-+        impl->sweep();
++    if (impl->glyphs.size() >= impl->nextGlyphSweep) {
++        sweep(impl->glyphs, impl->nextGlyphSweep);
 +    }
 +    return added;
 +}
 +
-+std::size_t GlyphCache::size() {
++std::shared_ptr<const GlyphCache::Range> GlyphCache::intern(Range&& range) {
++    std::size_t hash = 0;
++    for (const auto& [id, glyph] : range) {
++        util::hash_combine(hash, glyph.get());
++    }
 +    std::scoped_lock lock(impl->mutex);
-+    impl->sweep();
-+    return impl->glyphs.size();
++    auto [first, last] = impl->ranges.equal_range(hash);
++    for (auto it = first; it != last; ++it) {
++        if (auto alive = it->second.lock(); alive && *alive == range) {
++            return alive;
++        }
++    }
++    auto added = std::make_shared<const Range>(std::move(range));
++    impl->ranges.emplace(hash, added);
++    if (impl->ranges.size() >= impl->nextRangeSweep) {
++        sweep(impl->ranges, impl->nextRangeSweep);
++    }
++    return added;
++}
++
++std::size_t GlyphCache::size() const {
++    std::scoped_lock lock(impl->mutex);
++    return static_cast<std::size_t>(std::count_if(
++        impl->glyphs.begin(), impl->glyphs.end(), [](const auto& entry) { return !entry.second.expired(); }));
 +}
 +
 +} // namespace mln
 diff --git a/src/mln/text/glyph_manager.cpp b/src/mln/text/glyph_manager.cpp
-index db25ceb205..acc2017333 100644
+index db25ceb205..ef5ad75a41 100644
 --- a/src/mln/text/glyph_manager.cpp
 +++ b/src/mln/text/glyph_manager.cpp
 @@ -18,9 +18,11 @@ namespace {
@@ -361,17 +409,87 @@ index db25ceb205..acc2017333 100644
  
  GlyphManager::~GlyphManager() {
      hbShapers.clear(); // clear harfbuzz + freetype face before library;
-@@ -143,7 +145,7 @@ void GlyphManager::processResponse(const Response& res, const FontStack& fontSta
-                 auto id = glyph.id;
-                 if (!localGlyphRasterizer->canRasterizeGlyph(fontStack, id)) {
-                     entry.glyphs.erase(id);
+@@ -139,11 +141,22 @@ void GlyphManager::processResponse(const Response& res, const FontStack& fontSta
+                 return;
+             }
+ 
+-            for (auto& glyph : glyphs) {
+-                auto id = glyph.id;
+-                if (!localGlyphRasterizer->canRasterizeGlyph(fontStack, id)) {
+-                    entry.glyphs.erase(id);
 -                    entry.glyphs.emplace(id, makeMutable<Glyph>(std::move(glyph)));
-+                    entry.glyphs.emplace(id, glyphCache->intern(std::move(glyph)));
++            if (range.type == GlyphIDType::FontPBF) {
++                GlyphCache::Range rangeGlyphs;
++                for (auto& glyph : glyphs) {
++                    auto id = glyph.id;
++                    if (!localGlyphRasterizer->canRasterizeGlyph(fontStack, id)) {
++                        rangeGlyphs.insert_or_assign(id, glyphCache->intern(std::move(glyph)));
++                    }
++                }
++                request.glyphs = glyphCache->intern(std::move(rangeGlyphs));
++            } else {
++                for (auto& glyph : glyphs) {
++                    auto id = glyph.id;
++                    if (!localGlyphRasterizer->canRasterizeGlyph(fontStack, id)) {
++                        entry.glyphs.erase(id);
++                        entry.glyphs.emplace(id, makeMutable<Glyph>(std::move(glyph)));
++                    }
                  }
              }
          }
+@@ -169,6 +182,7 @@ void GlyphManager::setObserver(GlyphManagerObserver* observer_) {
+ }
+ 
+ void GlyphManager::notify(GlyphRequestor& requestor, const GlyphDependencies& glyphDependencies) {
++    std::scoped_lock readWriteLock(rwLock);
+     GlyphMap response;
+ 
+     for (const auto& dependency : glyphDependencies.glyphs) {
+@@ -179,12 +193,7 @@ void GlyphManager::notify(GlyphRequestor& requestor, const GlyphDependencies& gl
+         Entry& entry = entries[fontStack];
+ 
+         for (const auto& glyphID : glyphIDs) {
+-            auto it = entry.glyphs.find(glyphID);
+-            if (it != entry.glyphs.end()) {
+-                glyphs.emplace(*it);
+-            } else {
+-                glyphs.emplace(glyphID, std::nullopt);
+-            }
++            glyphs.emplace(glyphID, findGlyph(entry, glyphID));
+         }
+     }
+ 
+@@ -223,9 +232,27 @@ bool GlyphManager::loadHBShaper(const FontStack& fontStack, GlyphIDType type, co
+     return true;
+ }
+ 
++std::optional<Immutable<Glyph>> GlyphManager::findGlyph(const Entry& entry, GlyphID glyphID) const {
++    if (auto it = entry.glyphs.find(glyphID); it != entry.glyphs.end()) {
++        return it->second;
++    }
++    if (glyphID.complex.type != GlyphIDType::FontPBF) {
++        return std::nullopt;
++    }
++    auto range = entry.ranges.find(getGlyphRange(glyphID));
++    if (range == entry.ranges.end() || !range->second.glyphs) {
++        return std::nullopt;
++    }
++    if (auto it = range->second.glyphs->find(glyphID); it != range->second.glyphs->end()) {
++        return it->second;
++    }
++    return std::nullopt;
++}
++
+ Immutable<Glyph> GlyphManager::getGlyph(const FontStack& fontStack, GlyphID glyphID) {
++    std::scoped_lock readWriteLock(rwLock);
+     auto& entry = entries[fontStack];
+-    if (entry.glyphs.find(glyphID) != entry.glyphs.end()) return entry.glyphs.at(glyphID);
++    if (auto glyph = findGlyph(entry, glyphID)) return *glyph;
+ 
+     if (glyphID.complex.type != FontPBF) {
+         auto shaper = getHBShaper(fontStack, glyphID.complex.type);
 diff --git a/src/mln/text/glyph_manager.hpp b/src/mln/text/glyph_manager.hpp
-index 46bd401eaf..4978b403f6 100644
+index 46bd401eaf..8b4254236a 100644
 --- a/src/mln/text/glyph_manager.hpp
 +++ b/src/mln/text/glyph_manager.hpp
 @@ -1,6 +1,7 @@
@@ -382,7 +500,15 @@ index 46bd401eaf..4978b403f6 100644
  #include <mln/text/glyph_manager_observer.hpp>
  #include <mln/text/glyph_range.hpp>
  #include <mln/text/local_glyph_rasterizer.hpp>
-@@ -45,7 +46,8 @@ public:
+@@ -8,6 +9,7 @@
+ #include <mln/util/immutable.hpp>
+ 
+ #include <mutex>
++#include <optional>
+ #include <string>
+ #include <unordered_map>
+ 
+@@ -45,7 +47,8 @@ public:
      GlyphManager(const GlyphManager &) = delete;
      GlyphManager &operator=(const GlyphManager &) = delete;
      explicit GlyphManager(
@@ -392,7 +518,25 @@ index 46bd401eaf..4978b403f6 100644
      ~GlyphManager();
  
      // Workers send a `getGlyphs` message to the main thread once they have
-@@ -104,6 +106,7 @@ private:
+@@ -87,13 +90,17 @@ private:
+         bool parsed = false;
+         std::unique_ptr<AsyncRequest> req;
+         std::unordered_map<GlyphRequestor *, std::shared_ptr<GlyphDependencies>> requestors;
++        std::shared_ptr<const GlyphCache::Range> glyphs;
+     };
+ 
+     struct Entry {
+         std::map<GlyphRange, GlyphRequest> ranges;
++        // Local and HarfBuzz glyphs. PBF glyphs are in the ranges.
+         std::map<GlyphID, Immutable<Glyph>> glyphs;
+     };
+ 
++    std::optional<Immutable<Glyph>> findGlyph(const Entry &, GlyphID) const;
++
+     std::unordered_map<FontStack, Entry, FontStackHasher> entries;
+ 
+     void requestRange(GlyphRequest &, const FontStack &, const GlyphRange &, FileSource &fileSource);
+@@ -104,6 +111,7 @@ private:
  
      // Shaping objects
      std::unique_ptr<LocalGlyphRasterizer> localGlyphRasterizer;
@@ -450,10 +594,10 @@ index d9098c1fe3..e38657bc4a 100644
      ${PROJECT_SOURCE_DIR}/test/text/language_tag.test.cpp
 diff --git a/test/text/glyph_cache.test.cpp b/test/text/glyph_cache.test.cpp
 new file mode 100644
-index 0000000000..1e7683a7be
+index 0000000000..e234eead43
 --- /dev/null
 +++ b/test/text/glyph_cache.test.cpp
-@@ -0,0 +1,68 @@
+@@ -0,0 +1,106 @@
 +#include <mln/test/util.hpp>
 +
 +#include <mln/text/glyph_cache.hpp>
@@ -461,7 +605,9 @@ index 0000000000..1e7683a7be
 +#include <mln/util/io.hpp>
 +
 +#include <cstring>
++#include <memory>
 +#include <thread>
++#include <utility>
 +#include <vector>
 +
 +using namespace mln;
@@ -478,9 +624,12 @@ index 0000000000..1e7683a7be
 +    return glyph;
 +}
 +
++// The range in test/fixtures/resources/glyphs.pbf.
++const GlyphRange fixtureRange(0, 255, GlyphIDType::FontPBF);
++
 +std::vector<Immutable<Glyph>> internRange(GlyphCache& cache, const std::string& data) {
 +    std::vector<Immutable<Glyph>> interned;
-+    for (auto& parsed : parseGlyphPBF(GlyphRange(0, 255, GlyphIDType::FontPBF), data)) {
++    for (auto& parsed : parseGlyphPBF(fixtureRange, data)) {
 +        interned.push_back(cache.intern(std::move(parsed)));
 +    }
 +    return interned;
@@ -500,15 +649,25 @@ index 0000000000..1e7683a7be
 +    EXPECT_NE(cache.intern(glyph(u'a', 1)), cache.intern(glyph(u'a', 2)));
 +}
 +
++TEST(GlyphCache, KeepsGlyphsWithDifferentIdsOrMetricsApart) {
++    GlyphCache cache;
++    const Immutable<Glyph> a = cache.intern(glyph(u'a', 1));
++    Glyph shifted = glyph(u'a', 1);
++    shifted.metrics.left = 1;
++
++    EXPECT_NE(a, cache.intern(glyph(u'b', 1)));
++    EXPECT_NE(a, cache.intern(std::move(shifted)));
++}
++
 +TEST(GlyphCache, ReleasesAGlyphWithItsLastOwner) {
 +    GlyphCache cache;
 +    const Immutable<Glyph> kept = cache.intern(glyph(u'a', 1));
 +    cache.intern(glyph(u'b', 1));
 +
-+    EXPECT_EQ(1u, cache.size());
++    EXPECT_EQ(1u, std::as_const(cache).size());
 +}
 +
-+TEST(GlyphCache, InternsTheSameRangeParsedOnTwoThreads) {
++TEST(GlyphCache, InternsTheGlyphsOfARangeParsedOnTwoThreads) {
 +    GlyphCache cache;
 +    const std::string data = util::read_file("test/fixtures/resources/glyphs.pbf");
 +    std::vector<Immutable<Glyph>> first;
@@ -522,11 +681,46 @@ index 0000000000..1e7683a7be
 +    ASSERT_FALSE(first.empty());
 +    EXPECT_EQ(first, second);
 +}
++
++TEST(GlyphCache, InternsRangesOfTheSameGlyphsOnce) {
++    GlyphCache cache;
++    const Immutable<Glyph> a = cache.intern(glyph(u'a', 1));
++
++    EXPECT_EQ(cache.intern(GlyphCache::Range{{u'a', a}}), cache.intern(GlyphCache::Range{{u'a', a}}));
++}
++
++TEST(GlyphCache, KeepsRangesOfDifferentGlyphsApart) {
++    GlyphCache cache;
++    const Immutable<Glyph> a = cache.intern(glyph(u'a', 1));
++    const Immutable<Glyph> b = cache.intern(glyph(u'a', 2));
++
++    EXPECT_NE(cache.intern(GlyphCache::Range{{u'a', a}}), cache.intern(GlyphCache::Range{{u'a', b}}));
++}
++
++TEST(GlyphCache, ReleasesARangeWithItsLastOwner) {
++    GlyphCache cache;
++    const Immutable<Glyph> a = cache.intern(glyph(u'a', 1));
++    const std::weak_ptr<const GlyphCache::Range> range = cache.intern(GlyphCache::Range{{u'a', a}});
++
++    EXPECT_TRUE(range.expired());
++}
 diff --git a/test/text/glyph_manager.test.cpp b/test/text/glyph_manager.test.cpp
-index 2385b8b464..4bdc37b338 100644
+index 2385b8b464..04191ec520 100644
 --- a/test/text/glyph_manager.test.cpp
 +++ b/test/text/glyph_manager.test.cpp
-@@ -158,8 +158,9 @@ public:
+@@ -126,6 +126,11 @@ public:
+     }
+ };
+ 
++class LatinALocalGlyphRasterizer : public StubLocalGlyphRasterizer {
++public:
++    bool canRasterizeGlyph(const FontStack&, GlyphID glyphID) override { return glyphID == GlyphID(u'a'); }
++};
++
+ class StubGlyphManagerObserver : public GlyphManagerObserver {
+ public:
+     void onGlyphsLoaded(const FontStack& fontStack, const GlyphRange& glyphRange) override {
+@@ -158,8 +163,9 @@ public:
      GlyphManager glyphManager;
  
      GlyphManagerTest(
@@ -538,7 +732,7 @@ index 2385b8b464..4bdc37b338 100644
  
      void run(const std::string& url, GlyphDependencies dependencies) {
          // Squelch logging.
-@@ -173,6 +174,19 @@ public:
+@@ -173,6 +179,19 @@ public:
      }
  
      void end() { loop.stop(); }
@@ -558,7 +752,7 @@ index 2385b8b464..4bdc37b338 100644
  };
  
  TEST(GlyphManager, LoadingSuccess) {
-@@ -269,6 +283,42 @@ TEST(GlyphManager, LoadingCorrupted) {
+@@ -269,6 +288,57 @@ TEST(GlyphManager, LoadingCorrupted) {
               GlyphDependencies{.glyphs = {{{{"Test Stack"}}, {u'a', u'å'}}}, .shapes = {}});
  }
  
@@ -596,6 +790,21 @@ index 2385b8b464..4bdc37b338 100644
 +    test.glyphManager.evict({});
 +
 +    EXPECT_EQ(0u, cache->size());
++}
++
++TEST(GlyphManager, DoesNotKeepTheRangeGlyphsItDrawsLocally) {
++    const auto loadedGlyphs = [](std::unique_ptr<LocalGlyphRasterizer> rasterizer) {
++        const auto cache = std::make_shared<GlyphCache>();
++        GlyphManagerTest test(std::move(rasterizer), cache);
++        test.load({"Test Stack"}, {u'a', u'å'});
++        return cache->size();
++    };
++
++    const std::size_t all = loadedGlyphs(std::make_unique<StubLocalGlyphRasterizer>());
++
++    // The fixture has u'a', the only glyph LatinALocalGlyphRasterizer draws.
++
++    EXPECT_EQ(all - 1, loadedGlyphs(std::make_unique<LatinALocalGlyphRasterizer>()));
 +}
 +
  TEST(GlyphManager, LoadingCancel) {
