@@ -41,7 +41,8 @@ BACKENDS = {"egl": "OpenGL", "wgl": "OpenGL", "metal": "Metal", "vulkan": "Vulka
 def runtime_target(preset: str) -> tuple[str, str] | None:
     """The runtime package backend and runtime identifier of a preset."""
     platform, arch, backend = preset.rsplit("-", 2)
-    if platform not in RUNTIME_PLATFORMS:
+    # CI runs no .NET suite on RISC-V or LoongArch.
+    if platform not in RUNTIME_PLATFORMS or arch in {"riscv64", "loongarch64"}:
         return None
     return BACKENDS[backend], f"{RUNTIME_PLATFORMS[platform]}-{arch}"
 

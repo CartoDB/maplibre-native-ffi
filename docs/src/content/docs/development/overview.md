@@ -61,6 +61,12 @@ the same path. The machine needs QEMU, OVMF, and access to `/dev/kvm`; on
 Ubuntu, install `qemu-system-x86`, `qemu-utils`, and `ovmf`. It boots from a
 snapshot, so what it installs goes away when `devices-cli release` stops it.
 
+## RISC-V and LoongArch
+
+The Linux RISC-V and LoongArch presets cross-compile on any Linux host. Their
+test harness links Debian's graphics loaders for the target architecture, which
+the first configure downloads into `build/sysroot` with Docker or Podman.
+
 ## Windows on Linux
 
 The Windows presets also cross-compile on a Linux host, with LLVM's `clang-cl`,
