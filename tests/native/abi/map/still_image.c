@@ -395,8 +395,7 @@ static const mln_test_provided_resource failing_glyph_range[] = {
 };
 
 // The still image that meets a failed glyph range fails, and the next one
-// renders the label's tile without that range's glyphs instead of waiting for
-// them.
+// renders instead of waiting for that range.
 static void a_failed_glyph_range_does_not_hold_up_the_next_still_image(void) {
   mln_test_provider* provider =
     mln_test_provider_create(failing_glyph_range, 1);
