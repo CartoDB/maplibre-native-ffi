@@ -99,53 +99,6 @@ impl<T> Future for NativeFuture<T> {
     }
 }
 
-/// A future and the one call that resolves it, for a completion that a
-/// queue handler receives.
-pub fn pending<T>() -> (NativeFuture<T>, Resolver<T>) {
-    let state = Arc::new(State {
-        result: Mutex::new(None),
-        ready: Condvar::new(),
-        waker: Mutex::new(None),
-    });
-    (
-        NativeFuture {
-            state: Arc::clone(&state),
-        },
-        Resolver { state },
-    )
-}
-
-/// Resolves the [`NativeFuture`] that [`pending`] returned.
-pub struct Resolver<T> {
-    state: Arc<State<T>>,
-}
-
-impl<T> std::fmt::Debug for Resolver<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Resolver").finish_non_exhaustive()
-    }
-}
-
-impl<T> Resolver<T> {
-    /// Delivers the result and wakes whoever waits on the future.
-    pub fn resolve(self, result: Result<T>) {
-        self.state.resolve(result);
-    }
-}
-
-impl<T> State<T> {
-    fn resolve(&self, result: Result<T>) {
-        *lock(&self.result) = Some(result);
-        self.ready.notify_all();
-        let waker = lock(&self.waker).take();
-        if let Some(waker) = waker
-            && let Err(payload) = catch_unwind(AssertUnwindSafe(|| waker.wake()))
-        {
-            crate::callback::report_panic("mln_completion_callback", payload);
-        }
-    }
-}
-
 unsafe extern "C" fn complete<T>(
     user_data: *mut c_void,
     result: *const sys::mln_completion_result,
@@ -177,9 +130,20 @@ unsafe extern "C" fn complete<T>(
             )),
         }
     } else {
-        Err(failure(raw))
+        Err(Error::Status {
+            status: crate::Status::from_raw(raw.status),
+            diagnostic: copy_diagnostic(raw),
+            generation: raw.generation,
+        })
     };
-    bridge.state.resolve(converted);
+    *lock(&bridge.state.result) = Some(converted);
+    bridge.state.ready.notify_all();
+    let waker = lock(&bridge.state.waker).take();
+    if let Some(waker) = waker
+        && let Err(payload) = catch_unwind(AssertUnwindSafe(|| waker.wake()))
+    {
+        crate::callback::report_panic("mln_completion_callback", payload);
+    }
 }
 
 unsafe extern "C" fn release<T>(user_data: *mut c_void) {
@@ -243,16 +207,6 @@ pub(crate) fn command(result: &sys::mln_completion_result) -> Result<CommandComp
         generation: result.generation,
         render_update_generation: result.render_update_generation,
     })
-}
-
-/// The error of a failed completion, with its status, diagnostic, and
-/// generation.
-pub(crate) fn failure(result: &sys::mln_completion_result) -> Error {
-    Error::Status {
-        status: crate::Status::from_raw(result.status),
-        diagnostic: copy_diagnostic(result),
-        generation: result.generation,
-    }
 }
 
 fn copy_diagnostic(result: &sys::mln_completion_result) -> String {

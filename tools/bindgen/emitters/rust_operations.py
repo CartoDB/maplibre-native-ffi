@@ -11,7 +11,6 @@ from dataclasses import dataclass, field, replace
 from typing import assert_never
 
 from ..model import Unsupported
-from ..protocol import TEXTURE_READBACK_RESULT
 from ..semantic import OperationPlan
 from .rust import (
     SCALARS,
@@ -26,7 +25,7 @@ from .rust import (
 from .rust_dynamic_values import decode, dynamic, encode
 
 # Emitted bodies use these as crate paths, so no parameter can take them.
-RESERVED_LOCALS = {"sys", "convert", "queue", "on_complete"}
+RESERVED_LOCALS = {"sys", "convert"}
 
 
 def local_name(name: str) -> str:
@@ -109,22 +108,9 @@ class Body:
     uses_call: bool = False
 
 
-def operation(
-    plan: OperationPlan, value_types, *, discard=False, queued=False
-) -> tuple[str, str]:
+def operation(plan: OperationPlan, value_types, *, discard=False) -> tuple[str, str]:
     """An operation's owner module and method. With `discard`, the method
-    passes no completion. With `queued`, it is a method of the owner's queued
-    view, whose queue holds the completion's handler and the registrations'
-    handlers."""
-    # A queued call takes the registrations of its queue's kind.
-    value_types.queue_kind = "K" if queued else ""
-    try:
-        return _operation(plan, value_types, discard=discard, queued=queued)
-    finally:
-        value_types.queue_kind = ""
-
-
-def _operation(plan: OperationPlan, value_types, *, discard, queued) -> tuple[str, str]:
+    passes no completion."""
     function = plan.function
     if plan.consumes == "always" and function.return_type.kind != "void":
         raise Unsupported(
@@ -162,11 +148,6 @@ def _operation(plan: OperationPlan, value_types, *, discard, queued) -> tuple[st
         raise Unsupported("method name is reserved by the handle runtime")
     method = method_name(plan) if method == plan.member else identifier(method)
     closure, native = native_closure(plan, body)
-    if queued and plan.completion and not discard:
-        public, ending = queued_completion(plan, value_types, body, closure, native)
-        return module, method_code(
-            plan, value_types, body, method, public, ending, queued=True
-        )
     match plan.shape:
         case "discard" | "release" | "answer" | "thread_start" | "owned" | "call":
             public, lines, returned = immediate(
@@ -184,7 +165,7 @@ def _operation(plan: OperationPlan, value_types, *, discard, queued) -> tuple[st
             public, ending = pending(
                 body,
                 *(
-                    discarded(body, closure, native, queued=queued)
+                    discarded(body, closure, native)
                     if discard
                     else commanded(plan, body, closure, native)
                 ),
@@ -201,55 +182,8 @@ def _operation(plan: OperationPlan, value_types, *, discard, queued) -> tuple[st
         case _:
             assert_never(plan.shape)
     return module, method_code(
-        plan, value_types, body, method, public, ending, discard=discard, queued=queued
+        plan, value_types, body, method, public, ending, discard=discard
     )
-
-
-# Results that a queued handler reads from its batch rather than copying, by
-# the queued value that lends them.
-LENT_RESULTS = {TEXTURE_READBACK_RESULT: "delivery::Readback"}
-
-
-def queued_value(plan: OperationPlan, value_types) -> str:
-    """The `QueuedValue` that a queued completion lends its handler."""
-    if plan.shape == "command":
-        if plan.result is not None:
-            raise Unsupported("command receipt cannot discard a value payload")
-        return "delivery::Command"
-    result = plan.result
-    if result is None:
-        return "delivery::Unit"
-    if lent := LENT_RESULTS.get(result.native):
-        return lent
-    _, converter = result_rule(plan, value_types)
-    for rule, value in (
-        ("value", "Copied"),
-        ("optional", "CopiedOptional"),
-        ("list", "CopiedList"),
-    ):
-        prefix = f"completion::{rule}::<"
-        if converter.startswith(prefix) and converter.endswith(", _>"):
-            raw = converter.removeprefix(prefix).removesuffix(", _>")
-            array = result.kind == "array"
-            element = result.element if array else replace(result, nullable=False)
-            public = value_types.public(element)
-            return f"delivery::{value}<{raw}, {public}>"
-    raise Unsupported("queued result requires a native copy rule")
-
-
-def queued_completion(
-    plan: OperationPlan, value_types, body: Body, closure: str, native: str
-) -> tuple[str, list[str]]:
-    """A completing call whose completion the view's queue delivers to a
-    handler, after the outputs it returns at once."""
-    value = queued_value(plan, value_types)
-    body.signature.append(f"on_complete: impl CompletionHandler<K, {value}>")
-    queue = "queue" if plan.consumes or not body.target else "self.1"
-    enqueue = f"{queue}.enqueue({body.call}, on_complete, {closure} {native})"
-    if not body.outputs:
-        return "()", [enqueue]
-    public, output = joined(body)
-    return public, [f"{enqueue}?;", f"Ok({output})"]
 
 
 def begin(plan: OperationPlan, receiver: str | None) -> Body:
@@ -658,13 +592,8 @@ def viewed(
     return f"Lent<'_, {public}>", [*lines, f"Ok(Lent::new({returned}))"]
 
 
-def discarded(
-    body: Body, closure: str, native: str, *, queued: bool = False
-) -> tuple[str, str]:
-    """A completing call that passes no completion. A queued one goes through
-    its view's queue, which refuses it once closed."""
-    if queued:
-        return "()", f"self.1.discard({body.call}, {closure} {native})"
+def discarded(body: Body, closure: str, native: str) -> tuple[str, str]:
+    """A completing call that passes no completion."""
     return "()", f"{body.call}.discard({closure} {native})"
 
 
@@ -708,8 +637,7 @@ def method_code(
     public: str,
     ending: list[str],
     *,
-    discard: bool = False,
-    queued: bool = False,
+    discard: bool,
 ) -> str:
     """The method around a call's ending: the receiver it takes or consumes,
     its return type, and its documentation."""
@@ -717,15 +645,6 @@ def method_code(
     consuming = bool(plan.consumes)
     mutable = "mut " if body.uses_call or not plan.completion else ""
     prelude, setup, call = body.prelude, body.setup, body.call
-    # A queued call puts its registrations on the view's queue.
-    on_queue = (".queue(queue)" if consuming else ".queue(self.1)") if queued else ""
-    owned_queue = queued and (consuming or body.target is None)
-    if owned_queue:
-        # A consuming call is the owner's own method, and a global call a
-        # function, so each takes the queue.
-        on_queue = ".queue(queue)"
-        method = f"{method}_queued"
-        body.signature.insert(1 if consuming else 0, "queue: &DeliveryQueue<K>")
     if consuming:
         if body.target is None:
             raise Unsupported("consumption requires an owned receiver")
@@ -739,18 +658,16 @@ def method_code(
         lines = [
             *prelude,
             f"self.consume(|{body.target}| {{",
-            f"    let {mutable}{call} = Call::new({body.target}){on_queue};",
+            f"    let {mutable}{call} = Call::new({body.target});",
             *("    " + line for line in [*setup, *ending]),
             "})",
         ]
     else:
-        receiver_self = (
-            "self.0" if discard or queued else "self.owner" if plan.view else "self"
-        )
+        receiver_self = "self.0" if discard else "self.owner" if plan.view else "self"
         lines = [
-            f"let {mutable}{call} = {receiver_self}.inner.call(){on_queue};"
+            f"let {mutable}{call} = {receiver_self}.inner.call();"
             if body.target is not None
-            else f"let {mutable}{call} = Call::global(){on_queue};"
+            else f"let {mutable}{call} = Call::global();"
         ]
         lines += [*prelude, *setup, *ending]
     returns = (
@@ -799,11 +716,10 @@ def method_code(
         if unsafe_input
         else ""
     )
-    generic = "<K: QueueKind>" if owned_queue else ""
     return (
         doc(value_types.bound, function.name, "    ")
         + safety_doc
-        + f"    pub {'unsafe ' if unsafe_input else ''}fn {method}{generic}({', '.join(body.signature)}){returns} {{\n"
+        + f"    pub {'unsafe ' if unsafe_input else ''}fn {method}({', '.join(body.signature)}){returns} {{\n"
         + "\n".join("        " + line for line in lines)
         + "\n    }\n"
     )

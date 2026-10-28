@@ -18,15 +18,6 @@
 //! Capturing a strong `Arc` creates a reference cycle that requires an
 //! explicit clear or release.
 //!
-//! Each owner's `queued(&queue)` view makes the same calls in queue mode on a
-//! [`DeliveryQueue`]: native copies each completion and callback into the
-//! queue, and the host runs them where it drains it. A completion's handler
-//! receives a [`QueuedResult`] that borrows its batch, such as a texture
-//! readback whose pixels it reads without a copy, and a registration's
-//! callbacks run from the queue until it retires. [`Dispatcher`] drains on a
-//! thread of its own, which adds one thread hop to a synchronous round trip;
-//! callback mode and a [`LocalDispatcher`] drained by the waiting thread don't.
-//!
 //! The binding contains callback errors and panics and returns a failure value
 //! to native. Failures that no caller can receive go to the reporter that
 //! [`set_reporter`] installs, as [`Report::CallbackError`], or to standard error
@@ -45,12 +36,10 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 
 mod abi;
-mod binding_support;
 mod call;
 mod callback;
 mod completion;
 mod convert;
-mod delivery;
 mod error;
 mod finalize;
 #[allow(clippy::all, dead_code, unused_imports)]
@@ -62,12 +51,7 @@ mod status;
 mod string;
 
 pub use call::Lent;
-pub use completion::{CommandCompletion, NativeFuture, Resolver, pending};
-pub use delivery::{
-    BatchBytes, Callback, Command, CompletionHandler, Copied, CopiedList, CopiedOptional, Delivery,
-    DeliveryBatch, DeliveryKind, DeliveryQueue, Dispatcher, Local, LocalDispatcher, QueueKind,
-    QueuedResult, QueuedValue, Readback, Shared, TakenDelivery, TextureReadbackView, Unit,
-};
+pub use completion::{CommandCompletion, NativeFuture};
 pub use error::{Error, Result};
 pub use generated::*;
 pub use handle::NativeHandleLeak;

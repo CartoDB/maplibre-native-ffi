@@ -15,7 +15,7 @@ pub enum AmbientCacheOperation: u32 {
 /// See `mln_animation_options` in the
 /// [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/map_8h.html).
 #[derive(Debug, Clone, Default)]
-pub struct AnimationOptions<K: QueueKind = Shared> {
+pub struct AnimationOptions {
     /// Duration in milliseconds. Must be finite, non-negative, and short enough
     /// to represent as a duration.
     pub duration_ms: Option<f64>,
@@ -31,9 +31,9 @@ pub struct AnimationOptions<K: QueueKind = Shared> {
     /// `MapHandle::cancel_camera_transition()` matches.
     pub transition_id: Option<u64>,
     /// Reports the end of the command's transitions. Disabled by default.
-    pub end_handler: CameraTransitionHandler<K>,
+    pub end_handler: CameraTransitionHandler,
 }
-impl<K: QueueKind> ToNative<sys::mln_animation_options> for AnimationOptions<K> {
+impl ToNative<sys::mln_animation_options> for AnimationOptions {
     fn to_native(&self, arena: &mut InputArena) -> Result<sys::mln_animation_options> {
         let mut raw: sys::mln_animation_options = unsafe { std::mem::zeroed() };
         raw.fields = 0;
@@ -219,7 +219,7 @@ impl Default for CameraChangeMode {
 /// See `mln_camera_delta` in the
 /// [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/map_8h.html).
 #[derive(Debug, Clone, Default)]
-pub struct CameraDelta<K: QueueKind = Shared> {
+pub struct CameraDelta {
     /// Pan in logical map pixels; the content moves by this offset.
     pub offset: Option<ScreenPoint>,
     /// Positive zoom factor; 2 zooms in one level.
@@ -231,10 +231,10 @@ pub struct CameraDelta<K: QueueKind = Shared> {
     /// Screen point in logical map pixels that scale, bearing, and pitch keep
     /// fixed.
     pub anchor: Option<ScreenPoint>,
-    pub animation: AnimationOptions<K>,
+    pub animation: AnimationOptions,
     pub gesture_phase: GesturePhase,
 }
-impl<K: QueueKind> ToNative<sys::mln_camera_delta> for CameraDelta<K> {
+impl ToNative<sys::mln_camera_delta> for CameraDelta {
     fn to_native(&self, arena: &mut InputArena) -> Result<sys::mln_camera_delta> {
         let mut raw: sys::mln_camera_delta = unsafe { std::mem::zeroed() };
         raw.size = std::mem::size_of::<sys::mln_camera_delta>() as _;
@@ -426,17 +426,12 @@ impl FromNative<sys::mln_camera_transition_end> for CameraTransitionEnd {
 ///
 /// See `mln_camera_transition_handler` in the
 /// [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/map_8h.html).
-///
-/// A record of kind [`Shared`], which `new` builds, holds `Send` and
-/// `Sync` callbacks for callback mode or a shared queue. One of kind
-/// [`Local`], which `local` builds, holds callbacks that only a local
-/// queue's thread runs.
 #[derive(Clone, Default)]
-pub struct CameraTransitionHandler<K: QueueKind = Shared> {
+pub struct CameraTransitionHandler {
     /// The callback receives (`end`).
-    pub callback: Option<Callback<K, dyn Fn(CameraTransitionEnd) + 'static>>,
+    pub callback: Option<std::sync::Arc<dyn Fn(CameraTransitionEnd) + Send + Sync + 'static>>,
 }
-impl<K: QueueKind> std::fmt::Debug for CameraTransitionHandler<K> {
+impl std::fmt::Debug for CameraTransitionHandler {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("CameraTransitionHandler")
             .finish_non_exhaustive()
@@ -447,7 +442,7 @@ impl CameraTransitionHandler {
     where
         F: Fn(CameraTransitionEnd) + Send + Sync + 'static,
     {
-        self.callback = Some(Callback::shared(callback, |callback| callback));
+        self.callback = Some(std::sync::Arc::new(callback));
         self
     }
     pub fn new<F>(callback: F) -> Self
@@ -456,23 +451,6 @@ impl CameraTransitionHandler {
     {
         Self::default().with_callback(callback)
     }
-}
-impl CameraTransitionHandler<Local> {
-    pub fn with_callback<F>(mut self, callback: F) -> Self
-    where
-        F: Fn(CameraTransitionEnd) + 'static,
-    {
-        self.callback = Some(Callback::local(callback, |callback| callback));
-        self
-    }
-    pub fn local<F>(callback: F) -> Self
-    where
-        F: Fn(CameraTransitionEnd) + 'static,
-    {
-        Self::default().with_callback(callback)
-    }
-}
-impl<K: QueueKind> CameraTransitionHandler<K> {
     unsafe extern "C" fn callback_trampoline(
         user_data: *mut std::ffi::c_void,
         end: *const sys::mln_camera_transition_end,
@@ -485,57 +463,14 @@ impl<K: QueueKind> CameraTransitionHandler<K> {
             Ok(())
         })
     }
-    /// Runs the callback that one queued delivery names.
-    fn deliver(&self, delivery: &sys::mln_delivery, take: &dyn Fn() -> Result<()>) {
-        let _ = take;
-        let state = std::ptr::from_ref(self).cast_mut().cast();
-        match delivery.type_ {
-            sys::MLN_DELIVERY_TYPE_CAMERA_TRANSITION_END => {
-                // SAFETY: the delivery's type selects its payload member, which
-                // the batch keeps until the handler returns.
-                let payload = unsafe { delivery.payload.camera_transition_end };
-                if self.callback.is_none() {
-                    return;
-                }
-                unsafe {
-                    Self::callback_trampoline(state, payload.end);
-                }
-            }
-            _ => {}
-        }
-    }
 }
-#[cfg(test)]
-static_assertions::assert_impl_all!(CameraTransitionHandler: Send, Sync);
-#[cfg(test)]
-static_assertions::assert_not_impl_any!(CameraTransitionHandler<Local>: Send, Sync);
-impl<K: QueueKind> ToNative<sys::mln_camera_transition_handler> for CameraTransitionHandler<K> {
+impl ToNative<sys::mln_camera_transition_handler> for CameraTransitionHandler {
     fn to_native(&self, arena: &mut InputArena) -> Result<sys::mln_camera_transition_handler> {
         let mut raw: sys::mln_camera_transition_handler = unsafe { std::mem::zeroed() };
         raw.callback = self
             .callback
             .as_ref()
             .map(|_| Self::callback_trampoline as _);
-        if !(raw.callback.is_none()) {
-            let state = self.clone();
-            // SAFETY: a queue runs the handler with a delivery of its
-            // batch, which stays valid until the handler returns.
-            let deliver = move |delivery: *const std::ffi::c_void,
-                                take: &dyn Fn() -> Result<()>| {
-                state.deliver(unsafe { &*delivery.cast() }, take)
-            };
-            // SAFETY: a shared record is `Send` and `Sync`.
-            if let Some((queue, token)) = arena
-                .queued_registration(delivery::local::<K>(), || unsafe {
-                    delivery::registration::<K>(deliver)
-                })?
-            {
-                raw.callback = None;
-                raw.user_data = token;
-                raw.queue = queue;
-                return Ok(raw);
-            }
-        }
         if !(raw.callback.is_none()) {
             // SAFETY: the release reclaims exactly this state.
             raw.user_data = unsafe { arena.registration(self.clone(), callback::release::<Self>) };
@@ -573,13 +508,13 @@ impl Default for CameraTransitionOutcome {
 /// See `mln_camera_update` in the
 /// [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/map_8h.html).
 #[derive(Debug, Clone, Default)]
-pub struct CameraUpdate<K: QueueKind = Shared> {
+pub struct CameraUpdate {
     pub mode: CameraUpdateMode,
     pub camera: CameraOptions,
-    pub animation: AnimationOptions<K>,
+    pub animation: AnimationOptions,
     pub gesture_phase: GesturePhase,
 }
-impl<K: QueueKind> ToNative<sys::mln_camera_update> for CameraUpdate<K> {
+impl ToNative<sys::mln_camera_update> for CameraUpdate {
     fn to_native(&self, arena: &mut InputArena) -> Result<sys::mln_camera_update> {
         let mut raw: sys::mln_camera_update = unsafe { std::mem::zeroed() };
         raw.size = std::mem::size_of::<sys::mln_camera_update>() as _;
@@ -666,21 +601,16 @@ impl Default for ConstrainMode {
 ///
 /// See `mln_custom_geometry_source_options` in the
 /// [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/style_8h.html).
-///
-/// A record of kind [`Shared`], which `new` builds, holds `Send` and
-/// `Sync` callbacks for callback mode or a shared queue. One of kind
-/// [`Local`], which `local` builds, holds callbacks that only a local
-/// queue's thread runs.
 #[derive(Clone)]
-pub struct CustomGeometrySourceOptions<K: QueueKind = Shared> {
+pub struct CustomGeometrySourceOptions {
     /// Tile fetch callback.
     ///
     /// The callback receives (`tile_id`).
-    pub fetch_tile: Callback<K, dyn Fn(CanonicalTileId) + 'static>,
+    pub fetch_tile: std::sync::Arc<dyn Fn(CanonicalTileId) + Send + Sync + 'static>,
     /// Optional best-effort tile cancel callback.
     ///
     /// The callback receives (`tile_id`).
-    pub cancel_tile: Option<Callback<K, dyn Fn(CanonicalTileId) + 'static>>,
+    pub cancel_tile: Option<std::sync::Arc<dyn Fn(CanonicalTileId) + Send + Sync + 'static>>,
     pub min_zoom: Option<f64>,
     pub max_zoom: Option<f64>,
     pub tolerance: Option<f64>,
@@ -689,7 +619,7 @@ pub struct CustomGeometrySourceOptions<K: QueueKind = Shared> {
     pub clip: Option<bool>,
     pub wrap: Option<bool>,
 }
-impl<K: QueueKind> std::fmt::Debug for CustomGeometrySourceOptions<K> {
+impl std::fmt::Debug for CustomGeometrySourceOptions {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("CustomGeometrySourceOptions")
             .finish_non_exhaustive()
@@ -700,7 +630,7 @@ impl CustomGeometrySourceOptions {
     where
         F: Fn(CanonicalTileId) + Send + Sync + 'static,
     {
-        self.cancel_tile = Some(Callback::shared(callback, |callback| callback));
+        self.cancel_tile = Some(std::sync::Arc::new(callback));
         self
     }
     pub fn new<F>(fetch_tile: F) -> Self
@@ -708,7 +638,7 @@ impl CustomGeometrySourceOptions {
         F: Fn(CanonicalTileId) + Send + Sync + 'static,
     {
         Self {
-            fetch_tile: Callback::shared(fetch_tile, |callback| callback),
+            fetch_tile: std::sync::Arc::new(fetch_tile),
             cancel_tile: None,
             min_zoom: Default::default(),
             max_zoom: Default::default(),
@@ -719,33 +649,6 @@ impl CustomGeometrySourceOptions {
             wrap: Default::default(),
         }
     }
-}
-impl CustomGeometrySourceOptions<Local> {
-    pub fn with_cancel_tile<F>(mut self, callback: F) -> Self
-    where
-        F: Fn(CanonicalTileId) + 'static,
-    {
-        self.cancel_tile = Some(Callback::local(callback, |callback| callback));
-        self
-    }
-    pub fn local<F>(fetch_tile: F) -> Self
-    where
-        F: Fn(CanonicalTileId) + 'static,
-    {
-        Self {
-            fetch_tile: Callback::local(fetch_tile, |callback| callback),
-            cancel_tile: None,
-            min_zoom: Default::default(),
-            max_zoom: Default::default(),
-            tolerance: Default::default(),
-            tile_size: Default::default(),
-            buffer: Default::default(),
-            clip: Default::default(),
-            wrap: Default::default(),
-        }
-    }
-}
-impl<K: QueueKind> CustomGeometrySourceOptions<K> {
     unsafe extern "C" fn fetch_tile_trampoline(
         user_data: *mut std::ffi::c_void,
         tile_id: sys::mln_canonical_tile_id,
@@ -770,41 +673,8 @@ impl<K: QueueKind> CustomGeometrySourceOptions<K> {
             Ok(())
         })
     }
-    /// Runs the callback that one queued delivery names.
-    fn deliver(&self, delivery: &sys::mln_delivery, take: &dyn Fn() -> Result<()>) {
-        let _ = take;
-        let state = std::ptr::from_ref(self).cast_mut().cast();
-        match delivery.type_ {
-            sys::MLN_DELIVERY_TYPE_CUSTOM_SOURCE_FETCH_TILE => {
-                // SAFETY: the delivery's type selects its payload member, which
-                // the batch keeps until the handler returns.
-                let payload = unsafe { delivery.payload.custom_source_fetch_tile };
-                unsafe {
-                    Self::fetch_tile_trampoline(state, payload.tile_id);
-                }
-            }
-            sys::MLN_DELIVERY_TYPE_CUSTOM_SOURCE_CANCEL_TILE => {
-                // SAFETY: the delivery's type selects its payload member, which
-                // the batch keeps until the handler returns.
-                let payload = unsafe { delivery.payload.custom_source_cancel_tile };
-                if self.cancel_tile.is_none() {
-                    return;
-                }
-                unsafe {
-                    Self::cancel_tile_trampoline(state, payload.tile_id);
-                }
-            }
-            _ => {}
-        }
-    }
 }
-#[cfg(test)]
-static_assertions::assert_impl_all!(CustomGeometrySourceOptions: Send, Sync);
-#[cfg(test)]
-static_assertions::assert_not_impl_any!(CustomGeometrySourceOptions<Local>: Send, Sync);
-impl<K: QueueKind> ToNative<sys::mln_custom_geometry_source_options>
-    for CustomGeometrySourceOptions<K>
-{
+impl ToNative<sys::mln_custom_geometry_source_options> for CustomGeometrySourceOptions {
     fn to_native(&self, arena: &mut InputArena) -> Result<sys::mln_custom_geometry_source_options> {
         let mut raw: sys::mln_custom_geometry_source_options = unsafe { std::mem::zeroed() };
         raw.fields = 0;
@@ -843,27 +713,6 @@ impl<K: QueueKind> ToNative<sys::mln_custom_geometry_source_options>
             raw.wrap = *item;
         }
         if !(raw.fetch_tile.is_none() && raw.cancel_tile.is_none()) {
-            let state = self.clone();
-            // SAFETY: a queue runs the handler with a delivery of its
-            // batch, which stays valid until the handler returns.
-            let deliver = move |delivery: *const std::ffi::c_void,
-                                take: &dyn Fn() -> Result<()>| {
-                state.deliver(unsafe { &*delivery.cast() }, take)
-            };
-            // SAFETY: a shared record is `Send` and `Sync`.
-            if let Some((queue, token)) = arena
-                .queued_registration(delivery::local::<K>(), || unsafe {
-                    delivery::registration::<K>(deliver)
-                })?
-            {
-                raw.fetch_tile = None;
-                raw.cancel_tile = None;
-                raw.user_data = token;
-                raw.queue = queue;
-                return Ok(raw);
-            }
-        }
-        if !(raw.fetch_tile.is_none() && raw.cancel_tile.is_none()) {
             // SAFETY: the release reclaims exactly this state.
             raw.user_data = unsafe { arena.registration(self.clone(), callback::release::<Self>) };
             raw.release_user_data = Some(callback::release::<Self>);
@@ -877,25 +726,20 @@ impl<K: QueueKind> ToNative<sys::mln_custom_geometry_source_options>
 ///
 /// See `mln_custom_vector_source_options` in the
 /// [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/style_8h.html).
-///
-/// A record of kind [`Shared`], which `new` builds, holds `Send` and
-/// `Sync` callbacks for callback mode or a shared queue. One of kind
-/// [`Local`], which `local` builds, holds callbacks that only a local
-/// queue's thread runs.
 #[derive(Clone)]
-pub struct CustomVectorSourceOptions<K: QueueKind = Shared> {
+pub struct CustomVectorSourceOptions {
     /// Tile fetch callback.
     ///
     /// The callback receives (`tile_id`).
-    pub fetch_tile: Callback<K, dyn Fn(CanonicalTileId) + 'static>,
+    pub fetch_tile: std::sync::Arc<dyn Fn(CanonicalTileId) + Send + Sync + 'static>,
     /// Optional best-effort tile cancel callback.
     ///
     /// The callback receives (`tile_id`).
-    pub cancel_tile: Option<Callback<K, dyn Fn(CanonicalTileId) + 'static>>,
+    pub cancel_tile: Option<std::sync::Arc<dyn Fn(CanonicalTileId) + Send + Sync + 'static>>,
     pub min_zoom: Option<f64>,
     pub max_zoom: Option<f64>,
 }
-impl<K: QueueKind> std::fmt::Debug for CustomVectorSourceOptions<K> {
+impl std::fmt::Debug for CustomVectorSourceOptions {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("CustomVectorSourceOptions")
             .finish_non_exhaustive()
@@ -906,7 +750,7 @@ impl CustomVectorSourceOptions {
     where
         F: Fn(CanonicalTileId) + Send + Sync + 'static,
     {
-        self.cancel_tile = Some(Callback::shared(callback, |callback| callback));
+        self.cancel_tile = Some(std::sync::Arc::new(callback));
         self
     }
     pub fn new<F>(fetch_tile: F) -> Self
@@ -914,34 +758,12 @@ impl CustomVectorSourceOptions {
         F: Fn(CanonicalTileId) + Send + Sync + 'static,
     {
         Self {
-            fetch_tile: Callback::shared(fetch_tile, |callback| callback),
+            fetch_tile: std::sync::Arc::new(fetch_tile),
             cancel_tile: None,
             min_zoom: Default::default(),
             max_zoom: Default::default(),
         }
     }
-}
-impl CustomVectorSourceOptions<Local> {
-    pub fn with_cancel_tile<F>(mut self, callback: F) -> Self
-    where
-        F: Fn(CanonicalTileId) + 'static,
-    {
-        self.cancel_tile = Some(Callback::local(callback, |callback| callback));
-        self
-    }
-    pub fn local<F>(fetch_tile: F) -> Self
-    where
-        F: Fn(CanonicalTileId) + 'static,
-    {
-        Self {
-            fetch_tile: Callback::local(fetch_tile, |callback| callback),
-            cancel_tile: None,
-            min_zoom: Default::default(),
-            max_zoom: Default::default(),
-        }
-    }
-}
-impl<K: QueueKind> CustomVectorSourceOptions<K> {
     unsafe extern "C" fn fetch_tile_trampoline(
         user_data: *mut std::ffi::c_void,
         tile_id: sys::mln_canonical_tile_id,
@@ -966,41 +788,8 @@ impl<K: QueueKind> CustomVectorSourceOptions<K> {
             Ok(())
         })
     }
-    /// Runs the callback that one queued delivery names.
-    fn deliver(&self, delivery: &sys::mln_delivery, take: &dyn Fn() -> Result<()>) {
-        let _ = take;
-        let state = std::ptr::from_ref(self).cast_mut().cast();
-        match delivery.type_ {
-            sys::MLN_DELIVERY_TYPE_CUSTOM_SOURCE_FETCH_TILE => {
-                // SAFETY: the delivery's type selects its payload member, which
-                // the batch keeps until the handler returns.
-                let payload = unsafe { delivery.payload.custom_source_fetch_tile };
-                unsafe {
-                    Self::fetch_tile_trampoline(state, payload.tile_id);
-                }
-            }
-            sys::MLN_DELIVERY_TYPE_CUSTOM_SOURCE_CANCEL_TILE => {
-                // SAFETY: the delivery's type selects its payload member, which
-                // the batch keeps until the handler returns.
-                let payload = unsafe { delivery.payload.custom_source_cancel_tile };
-                if self.cancel_tile.is_none() {
-                    return;
-                }
-                unsafe {
-                    Self::cancel_tile_trampoline(state, payload.tile_id);
-                }
-            }
-            _ => {}
-        }
-    }
 }
-#[cfg(test)]
-static_assertions::assert_impl_all!(CustomVectorSourceOptions: Send, Sync);
-#[cfg(test)]
-static_assertions::assert_not_impl_any!(CustomVectorSourceOptions<Local>: Send, Sync);
-impl<K: QueueKind> ToNative<sys::mln_custom_vector_source_options>
-    for CustomVectorSourceOptions<K>
-{
+impl ToNative<sys::mln_custom_vector_source_options> for CustomVectorSourceOptions {
     fn to_native(&self, arena: &mut InputArena) -> Result<sys::mln_custom_vector_source_options> {
         let mut raw: sys::mln_custom_vector_source_options = unsafe { std::mem::zeroed() };
         raw.fields = 0;
@@ -1017,27 +806,6 @@ impl<K: QueueKind> ToNative<sys::mln_custom_vector_source_options>
         if let Some(item) = &self.max_zoom {
             raw.fields |= sys::MLN_CUSTOM_VECTOR_SOURCE_OPTION_MAX_ZOOM;
             raw.max_zoom = *item;
-        }
-        if !(raw.fetch_tile.is_none() && raw.cancel_tile.is_none()) {
-            let state = self.clone();
-            // SAFETY: a queue runs the handler with a delivery of its
-            // batch, which stays valid until the handler returns.
-            let deliver = move |delivery: *const std::ffi::c_void,
-                                take: &dyn Fn() -> Result<()>| {
-                state.deliver(unsafe { &*delivery.cast() }, take)
-            };
-            // SAFETY: a shared record is `Send` and `Sync`.
-            if let Some((queue, token)) = arena
-                .queued_registration(delivery::local::<K>(), || unsafe {
-                    delivery::registration::<K>(deliver)
-                })?
-            {
-                raw.fetch_tile = None;
-                raw.cancel_tile = None;
-                raw.user_data = token;
-                raw.queue = queue;
-                return Ok(raw);
-            }
         }
         if !(raw.fetch_tile.is_none() && raw.cancel_tile.is_none()) {
             // SAFETY: the release reclaims exactly this state.
@@ -1854,19 +1622,15 @@ impl Default for LogEvent {
 ///
 /// See `mln_log_handler` in the
 /// [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/logging_8h.html).
-///
-/// A record of kind [`Shared`], which `new` builds, holds `Send` and
-/// `Sync` callbacks for callback mode or a shared queue. One of kind
-/// [`Local`], which `local` builds, holds callbacks that only a local
-/// queue's thread runs.
 #[derive(Clone)]
-pub struct LogHandler<K: QueueKind = Shared> {
+pub struct LogHandler {
     /// Receives each record.
     ///
     /// The callback receives (`severity`, `event`, `code`, `message`).
-    pub callback: Callback<K, dyn Fn(LogSeverity, LogEvent, i64, &str) -> bool + 'static>,
+    pub callback:
+        std::sync::Arc<dyn Fn(LogSeverity, LogEvent, i64, &str) -> bool + Send + Sync + 'static>,
 }
-impl<K: QueueKind> std::fmt::Debug for LogHandler<K> {
+impl std::fmt::Debug for LogHandler {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("LogHandler").finish_non_exhaustive()
     }
@@ -1877,21 +1641,9 @@ impl LogHandler {
         F: Fn(LogSeverity, LogEvent, i64, &str) -> bool + Send + Sync + 'static,
     {
         Self {
-            callback: Callback::shared(callback, |callback| callback),
+            callback: std::sync::Arc::new(callback),
         }
     }
-}
-impl LogHandler<Local> {
-    pub fn local<F>(callback: F) -> Self
-    where
-        F: Fn(LogSeverity, LogEvent, i64, &str) -> bool + 'static,
-    {
-        Self {
-            callback: Callback::local(callback, |callback| callback),
-        }
-    }
-}
-impl<K: QueueKind> LogHandler<K> {
     unsafe extern "C" fn callback_trampoline(
         user_data: *mut std::ffi::c_void,
         severity: sys::mln_log_severity,
@@ -1912,58 +1664,12 @@ impl<K: QueueKind> LogHandler<K> {
             Ok(value)
         })
     }
-    /// Runs the callback that one queued delivery names.
-    fn deliver(&self, delivery: &sys::mln_delivery, take: &dyn Fn() -> Result<()>) {
-        let _ = take;
-        let state = std::ptr::from_ref(self).cast_mut().cast();
-        match delivery.type_ {
-            sys::MLN_DELIVERY_TYPE_LOG_RECORD => {
-                // SAFETY: the delivery's type selects its payload member, which
-                // the batch keeps until the handler returns.
-                let payload = unsafe { delivery.payload.log_record };
-                unsafe {
-                    Self::callback_trampoline(
-                        state,
-                        payload.severity,
-                        payload.event,
-                        payload.code,
-                        payload.message,
-                    );
-                }
-            }
-            _ => {}
-        }
-    }
 }
-#[cfg(test)]
-static_assertions::assert_impl_all!(LogHandler: Send, Sync);
-#[cfg(test)]
-static_assertions::assert_not_impl_any!(LogHandler<Local>: Send, Sync);
-impl<K: QueueKind> ToNative<sys::mln_log_handler> for LogHandler<K> {
+impl ToNative<sys::mln_log_handler> for LogHandler {
     fn to_native(&self, arena: &mut InputArena) -> Result<sys::mln_log_handler> {
         let mut raw: sys::mln_log_handler = unsafe { std::mem::zeroed() };
         raw.size = std::mem::size_of::<sys::mln_log_handler>() as _;
         raw.callback = Some(Self::callback_trampoline as _);
-        if !(raw.callback.is_none()) {
-            let state = self.clone();
-            // SAFETY: a queue runs the handler with a delivery of its
-            // batch, which stays valid until the handler returns.
-            let deliver = move |delivery: *const std::ffi::c_void,
-                                take: &dyn Fn() -> Result<()>| {
-                state.deliver(unsafe { &*delivery.cast() }, take)
-            };
-            // SAFETY: a shared record is `Send` and `Sync`.
-            if let Some((queue, token)) = arena
-                .queued_registration(delivery::local::<K>(), || unsafe {
-                    delivery::registration::<K>(deliver)
-                })?
-            {
-                raw.callback = None;
-                raw.user_data = token;
-                raw.queue = queue;
-                return Ok(raw);
-            }
-        }
         if !(raw.callback.is_none()) {
             // SAFETY: the release reclaims exactly this state.
             raw.user_data = unsafe { arena.registration(self.clone(), callback::release::<Self>) };
@@ -3255,12 +2961,6 @@ impl FromNative<sys::mln_quaternion> for Quaternion {
 pub struct QueueLock {
     pub lock: Option<std::sync::Arc<dyn Fn() + Send + Sync + 'static>>,
     pub unlock: Option<std::sync::Arc<dyn Fn() + Send + Sync + 'static>>,
-    native: Option<
-        callback::NativeRegistration<(
-            unsafe extern "C" fn(*mut std::ffi::c_void),
-            unsafe extern "C" fn(*mut std::ffi::c_void),
-        )>,
-    >,
 }
 impl std::fmt::Debug for QueueLock {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -3288,30 +2988,6 @@ impl QueueLock {
         self.unlock = Some(std::sync::Arc::new(callback));
         self
     }
-    /// A registration whose callbacks native code supplies, called with
-    /// `user_data`. The first submission that takes the record, or a copy
-    /// of it, owns the context: native releases it after accepting the
-    /// record, and a refused submission releases it before it returns. A
-    /// later submission fails with `Status::InvalidState`. A record that
-    /// no submission takes releases it when its last copy drops.
-    ///
-    /// # Safety
-    /// The callbacks and `release` must meet the C contract with
-    /// `user_data` on any thread, and `release` must free it once.
-    pub unsafe fn native(
-        lock: unsafe extern "C" fn(*mut std::ffi::c_void),
-        unlock: unsafe extern "C" fn(*mut std::ffi::c_void),
-        user_data: *mut std::ffi::c_void,
-        release: Option<unsafe extern "C" fn(*mut std::ffi::c_void)>,
-    ) -> Self {
-        // SAFETY: the caller vouches for the callbacks and the release.
-        let native =
-            unsafe { callback::NativeRegistration::new((lock, unlock), user_data, release) };
-        Self {
-            native: Some(native),
-            ..Self::default()
-        }
-    }
     unsafe extern "C" fn lock_trampoline(user_data: *mut std::ffi::c_void) {
         // SAFETY: native passes the registration that this trampoline's
         // descriptor transferred.
@@ -3336,19 +3012,6 @@ impl ToNative<sys::mln_queue_lock> for QueueLock {
         let mut raw: sys::mln_queue_lock = unsafe { std::mem::zeroed() };
         raw.lock = self.lock.as_ref().map(|_| Self::lock_trampoline as _);
         raw.unlock = self.unlock.as_ref().map(|_| Self::unlock_trampoline as _);
-        if let Some(native) = &self.native {
-            if !(raw.lock.is_none() && raw.unlock.is_none()) {
-                return Err(Error::invalid_argument(
-                    "a native registration takes no host callbacks",
-                ));
-            }
-            let ((lock, unlock), user_data, release) = native.take(arena)?;
-            raw.lock = Some(lock);
-            raw.unlock = Some(unlock);
-            raw.user_data = user_data;
-            raw.release_user_data = release;
-            return Ok(raw);
-        }
         if !(raw.lock.is_none() && raw.unlock.is_none()) {
             // SAFETY: the release reclaims exactly this state.
             raw.user_data = unsafe { arena.registration(self.clone(), callback::release::<Self>) };
@@ -3859,21 +3522,17 @@ impl Default for ResourcePriority {
 ///
 /// See `mln_resource_provider` in the
 /// [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/runtime_8h.html).
-///
-/// A record of kind [`Shared`], which `new` builds, holds `Send` and
-/// `Sync` callbacks for callback mode or a shared queue. One of kind
-/// [`Local`], which `local` builds, holds callbacks that only a local
-/// queue's thread runs.
 #[derive(Clone)]
-pub struct ResourceProvider<K: QueueKind = Shared> {
+pub struct ResourceProvider {
     /// Answers each request that the routes leave to the provider.
     ///
     /// The callback receives (`request`, `handle`).
-    pub callback: Callback<K, dyn Fn(ResourceRequestInfo, ResourceRequestHandle) + 'static>,
+    pub callback:
+        std::sync::Arc<dyn Fn(ResourceRequestInfo, ResourceRequestHandle) + Send + Sync + 'static>,
     /// The requests that reach the provider; empty to claim every request.
     pub routes: Vec<ResourceRoute>,
 }
-impl<K: QueueKind> std::fmt::Debug for ResourceProvider<K> {
+impl std::fmt::Debug for ResourceProvider {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ResourceProvider").finish_non_exhaustive()
     }
@@ -3884,23 +3543,10 @@ impl ResourceProvider {
         F: Fn(ResourceRequestInfo, ResourceRequestHandle) + Send + Sync + 'static,
     {
         Self {
-            callback: Callback::shared(callback, |callback| callback),
+            callback: std::sync::Arc::new(callback),
             routes: Default::default(),
         }
     }
-}
-impl ResourceProvider<Local> {
-    pub fn local<F>(callback: F) -> Self
-    where
-        F: Fn(ResourceRequestInfo, ResourceRequestHandle) + 'static,
-    {
-        Self {
-            callback: Callback::local(callback, |callback| callback),
-            routes: Default::default(),
-        }
-    }
-}
-impl<K: QueueKind> ResourceProvider<K> {
     unsafe extern "C" fn callback_trampoline(
         user_data: *mut std::ffi::c_void,
         request: *const sys::mln_resource_request_info,
@@ -3915,57 +3561,14 @@ impl<K: QueueKind> ResourceProvider<K> {
             Ok(())
         })
     }
-    /// Runs the callback that one queued delivery names.
-    fn deliver(&self, delivery: &sys::mln_delivery, take: &dyn Fn() -> Result<()>) {
-        let _ = take;
-        let state = std::ptr::from_ref(self).cast_mut().cast();
-        match delivery.type_ {
-            sys::MLN_DELIVERY_TYPE_RESOURCE_REQUEST => {
-                // SAFETY: the delivery's type selects its payload member, which
-                // the batch keeps until the handler returns.
-                let payload = unsafe { delivery.payload.resource_request };
-                if !callback::taken("mln_resource_provider_callback", take) {
-                    return;
-                }
-                unsafe {
-                    Self::callback_trampoline(state, payload.request, payload.handle);
-                }
-            }
-            _ => {}
-        }
-    }
 }
-#[cfg(test)]
-static_assertions::assert_impl_all!(ResourceProvider: Send, Sync);
-#[cfg(test)]
-static_assertions::assert_not_impl_any!(ResourceProvider<Local>: Send, Sync);
-impl<K: QueueKind> ToNative<sys::mln_resource_provider> for ResourceProvider<K> {
+impl ToNative<sys::mln_resource_provider> for ResourceProvider {
     fn to_native(&self, arena: &mut InputArena) -> Result<sys::mln_resource_provider> {
         let mut raw: sys::mln_resource_provider = unsafe { std::mem::zeroed() };
         raw.size = std::mem::size_of::<sys::mln_resource_provider>() as _;
         raw.callback = Some(Self::callback_trampoline as _);
         raw.routes = convert::array(&self.routes, arena)?;
         raw.route_count = convert::count(self.routes.len())?;
-        if !(raw.callback.is_none()) {
-            let state = self.clone();
-            // SAFETY: a queue runs the handler with a delivery of its
-            // batch, which stays valid until the handler returns.
-            let deliver = move |delivery: *const std::ffi::c_void,
-                                take: &dyn Fn() -> Result<()>| {
-                state.deliver(unsafe { &*delivery.cast() }, take)
-            };
-            // SAFETY: a shared record is `Send` and `Sync`.
-            if let Some((queue, token)) = arena
-                .queued_registration(delivery::local::<K>(), || unsafe {
-                    delivery::registration::<K>(deliver)
-                })?
-            {
-                raw.callback = None;
-                raw.user_data = token;
-                raw.queue = queue;
-                return Ok(raw);
-            }
-        }
         if !(raw.callback.is_none()) {
             // SAFETY: the release reclaims exactly this state.
             raw.user_data = unsafe { arena.registration(self.clone(), callback::release::<Self>) };
@@ -4003,17 +3606,12 @@ impl FromNative<sys::mln_resource_range> for ResourceRange {
 ///
 /// See `mln_resource_request_cancel_handler` in the
 /// [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/runtime_8h.html).
-///
-/// A record of kind [`Shared`], which `new` builds, holds `Send` and
-/// `Sync` callbacks for callback mode or a shared queue. One of kind
-/// [`Local`], which `local` builds, holds callbacks that only a local
-/// queue's thread runs.
 #[derive(Clone)]
-pub struct ResourceRequestCancelHandler<K: QueueKind = Shared> {
+pub struct ResourceRequestCancelHandler {
     /// Reports the request's cancellation.
-    pub callback: Callback<K, dyn Fn() + 'static>,
+    pub callback: std::sync::Arc<dyn Fn() + Send + Sync + 'static>,
 }
-impl<K: QueueKind> std::fmt::Debug for ResourceRequestCancelHandler<K> {
+impl std::fmt::Debug for ResourceRequestCancelHandler {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ResourceRequestCancelHandler")
             .finish_non_exhaustive()
@@ -4025,21 +3623,9 @@ impl ResourceRequestCancelHandler {
         F: Fn() + Send + Sync + 'static,
     {
         Self {
-            callback: Callback::shared(callback, |callback| callback),
+            callback: std::sync::Arc::new(callback),
         }
     }
-}
-impl ResourceRequestCancelHandler<Local> {
-    pub fn local<F>(callback: F) -> Self
-    where
-        F: Fn() + 'static,
-    {
-        Self {
-            callback: Callback::local(callback, |callback| callback),
-        }
-    }
-}
-impl<K: QueueKind> ResourceRequestCancelHandler<K> {
     unsafe extern "C" fn callback_trampoline(
         user_data: *mut std::ffi::c_void,
         _handle: sys::mln_resource_request,
@@ -4052,30 +3638,8 @@ impl<K: QueueKind> ResourceRequestCancelHandler<K> {
             Ok(())
         })
     }
-    /// Runs the callback that one queued delivery names.
-    fn deliver(&self, delivery: &sys::mln_delivery, take: &dyn Fn() -> Result<()>) {
-        let _ = take;
-        let state = std::ptr::from_ref(self).cast_mut().cast();
-        match delivery.type_ {
-            sys::MLN_DELIVERY_TYPE_RESOURCE_REQUEST_CANCEL => {
-                // SAFETY: the delivery's type selects its payload member, which
-                // the batch keeps until the handler returns.
-                let payload = unsafe { delivery.payload.resource_request_cancel };
-                unsafe {
-                    Self::callback_trampoline(state, payload.handle);
-                }
-            }
-            _ => {}
-        }
-    }
 }
-#[cfg(test)]
-static_assertions::assert_impl_all!(ResourceRequestCancelHandler: Send, Sync);
-#[cfg(test)]
-static_assertions::assert_not_impl_any!(ResourceRequestCancelHandler<Local>: Send, Sync);
-impl<K: QueueKind> ToNative<sys::mln_resource_request_cancel_handler>
-    for ResourceRequestCancelHandler<K>
-{
+impl ToNative<sys::mln_resource_request_cancel_handler> for ResourceRequestCancelHandler {
     fn to_native(
         &self,
         arena: &mut InputArena,
@@ -4083,26 +3647,6 @@ impl<K: QueueKind> ToNative<sys::mln_resource_request_cancel_handler>
         let mut raw: sys::mln_resource_request_cancel_handler = unsafe { std::mem::zeroed() };
         raw.size = std::mem::size_of::<sys::mln_resource_request_cancel_handler>() as _;
         raw.callback = Some(Self::callback_trampoline as _);
-        if !(raw.callback.is_none()) {
-            let state = self.clone();
-            // SAFETY: a queue runs the handler with a delivery of its
-            // batch, which stays valid until the handler returns.
-            let deliver = move |delivery: *const std::ffi::c_void,
-                                take: &dyn Fn() -> Result<()>| {
-                state.deliver(unsafe { &*delivery.cast() }, take)
-            };
-            // SAFETY: a shared record is `Send` and `Sync`.
-            if let Some((queue, token)) = arena
-                .queued_registration(delivery::local::<K>(), || unsafe {
-                    delivery::registration::<K>(deliver)
-                })?
-            {
-                raw.callback = None;
-                raw.user_data = token;
-                raw.queue = queue;
-                return Ok(raw);
-            }
-        }
         if !(raw.callback.is_none()) {
             // SAFETY: the release reclaims exactly this state.
             raw.user_data = unsafe { arena.registration(self.clone(), callback::release::<Self>) };
@@ -4256,19 +3800,16 @@ impl Default for ResourceStoragePolicy {
 ///
 /// See `mln_resource_transform` in the
 /// [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/runtime_8h.html).
-///
-/// A record of kind [`Shared`], which `new` builds, holds `Send` and
-/// `Sync` callbacks for callback mode or a shared queue. One of kind
-/// [`Local`], which `local` builds, holds callbacks that only a local
-/// queue's thread runs.
 #[derive(Clone)]
-pub struct ResourceTransform<K: QueueKind = Shared> {
+pub struct ResourceTransform {
     /// Asks for the URL of each network resource request.
     ///
     /// The callback receives (`kind`, `url`, `request`).
-    pub callback: Callback<K, dyn Fn(ResourceKind, &str, ResourceTransformRequestHandle) + 'static>,
+    pub callback: std::sync::Arc<
+        dyn Fn(ResourceKind, &str, ResourceTransformRequestHandle) + Send + Sync + 'static,
+    >,
 }
-impl<K: QueueKind> std::fmt::Debug for ResourceTransform<K> {
+impl std::fmt::Debug for ResourceTransform {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ResourceTransform").finish_non_exhaustive()
     }
@@ -4279,21 +3820,9 @@ impl ResourceTransform {
         F: Fn(ResourceKind, &str, ResourceTransformRequestHandle) + Send + Sync + 'static,
     {
         Self {
-            callback: Callback::shared(callback, |callback| callback),
+            callback: std::sync::Arc::new(callback),
         }
     }
-}
-impl ResourceTransform<Local> {
-    pub fn local<F>(callback: F) -> Self
-    where
-        F: Fn(ResourceKind, &str, ResourceTransformRequestHandle) + 'static,
-    {
-        Self {
-            callback: Callback::local(callback, |callback| callback),
-        }
-    }
-}
-impl<K: QueueKind> ResourceTransform<K> {
     unsafe extern "C" fn callback_trampoline(
         user_data: *mut std::ffi::c_void,
         kind: sys::mln_resource_kind,
@@ -4313,55 +3842,12 @@ impl<K: QueueKind> ResourceTransform<K> {
             Ok(())
         })
     }
-    /// Runs the callback that one queued delivery names.
-    fn deliver(&self, delivery: &sys::mln_delivery, take: &dyn Fn() -> Result<()>) {
-        let _ = take;
-        let state = std::ptr::from_ref(self).cast_mut().cast();
-        match delivery.type_ {
-            sys::MLN_DELIVERY_TYPE_RESOURCE_TRANSFORM => {
-                // SAFETY: the delivery's type selects its payload member, which
-                // the batch keeps until the handler returns.
-                let payload = unsafe { delivery.payload.resource_transform };
-                if !callback::taken("mln_resource_transform_callback", take) {
-                    return;
-                }
-                unsafe {
-                    Self::callback_trampoline(state, payload.kind, payload.url, payload.request);
-                }
-            }
-            _ => {}
-        }
-    }
 }
-#[cfg(test)]
-static_assertions::assert_impl_all!(ResourceTransform: Send, Sync);
-#[cfg(test)]
-static_assertions::assert_not_impl_any!(ResourceTransform<Local>: Send, Sync);
-impl<K: QueueKind> ToNative<sys::mln_resource_transform> for ResourceTransform<K> {
+impl ToNative<sys::mln_resource_transform> for ResourceTransform {
     fn to_native(&self, arena: &mut InputArena) -> Result<sys::mln_resource_transform> {
         let mut raw: sys::mln_resource_transform = unsafe { std::mem::zeroed() };
         raw.size = std::mem::size_of::<sys::mln_resource_transform>() as _;
         raw.callback = Some(Self::callback_trampoline as _);
-        if !(raw.callback.is_none()) {
-            let state = self.clone();
-            // SAFETY: a queue runs the handler with a delivery of its
-            // batch, which stays valid until the handler returns.
-            let deliver = move |delivery: *const std::ffi::c_void,
-                                take: &dyn Fn() -> Result<()>| {
-                state.deliver(unsafe { &*delivery.cast() }, take)
-            };
-            // SAFETY: a shared record is `Send` and `Sync`.
-            if let Some((queue, token)) = arena
-                .queued_registration(delivery::local::<K>(), || unsafe {
-                    delivery::registration::<K>(deliver)
-                })?
-            {
-                raw.callback = None;
-                raw.user_data = token;
-                raw.queue = queue;
-                return Ok(raw);
-            }
-        }
         if !(raw.callback.is_none()) {
             // SAFETY: the release reclaims exactly this state.
             raw.user_data = unsafe { arena.registration(self.clone(), callback::release::<Self>) };
@@ -4530,19 +4016,14 @@ impl FromNative<sys::mln_runtime_event_glyphs> for RuntimeEventGlyphs {
 ///
 /// See `mln_runtime_event_handler` in the
 /// [C API reference](https://maplibre.org/maplibre-native-ffi/reference/c/runtime_8h.html).
-///
-/// A record of kind [`Shared`], which `new` builds, holds `Send` and
-/// `Sync` callbacks for callback mode or a shared queue. One of kind
-/// [`Local`], which `local` builds, holds callbacks that only a local
-/// queue's thread runs.
 #[derive(Clone)]
-pub struct RuntimeEventHandler<K: QueueKind = Shared> {
+pub struct RuntimeEventHandler {
     /// Receives each event batch.
     ///
     /// The callback receives (`events`).
-    pub callback: Callback<K, dyn Fn(Vec<RuntimeEvent>) + 'static>,
+    pub callback: std::sync::Arc<dyn Fn(Vec<RuntimeEvent>) + Send + Sync + 'static>,
 }
-impl<K: QueueKind> std::fmt::Debug for RuntimeEventHandler<K> {
+impl std::fmt::Debug for RuntimeEventHandler {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("RuntimeEventHandler")
             .finish_non_exhaustive()
@@ -4554,21 +4035,9 @@ impl RuntimeEventHandler {
         F: Fn(Vec<RuntimeEvent>) + Send + Sync + 'static,
     {
         Self {
-            callback: Callback::shared(callback, |callback| callback),
+            callback: std::sync::Arc::new(callback),
         }
     }
-}
-impl RuntimeEventHandler<Local> {
-    pub fn local<F>(callback: F) -> Self
-    where
-        F: Fn(Vec<RuntimeEvent>) + 'static,
-    {
-        Self {
-            callback: Callback::local(callback, |callback| callback),
-        }
-    }
-}
-impl<K: QueueKind> RuntimeEventHandler<K> {
     unsafe extern "C" fn callback_trampoline(
         user_data: *mut std::ffi::c_void,
         events: *const sys::mln_event_batch_view,
@@ -4585,52 +4054,12 @@ impl<K: QueueKind> RuntimeEventHandler<K> {
             Ok(())
         })
     }
-    /// Runs the callback that one queued delivery names.
-    fn deliver(&self, delivery: &sys::mln_delivery, take: &dyn Fn() -> Result<()>) {
-        let _ = take;
-        let state = std::ptr::from_ref(self).cast_mut().cast();
-        match delivery.type_ {
-            sys::MLN_DELIVERY_TYPE_RUNTIME_EVENTS => {
-                // SAFETY: the delivery's type selects its payload member, which
-                // the batch keeps until the handler returns.
-                let payload = unsafe { delivery.payload.runtime_events };
-                unsafe {
-                    Self::callback_trampoline(state, payload.events);
-                }
-            }
-            _ => {}
-        }
-    }
 }
-#[cfg(test)]
-static_assertions::assert_impl_all!(RuntimeEventHandler: Send, Sync);
-#[cfg(test)]
-static_assertions::assert_not_impl_any!(RuntimeEventHandler<Local>: Send, Sync);
-impl<K: QueueKind> ToNative<sys::mln_runtime_event_handler> for RuntimeEventHandler<K> {
+impl ToNative<sys::mln_runtime_event_handler> for RuntimeEventHandler {
     fn to_native(&self, arena: &mut InputArena) -> Result<sys::mln_runtime_event_handler> {
         let mut raw: sys::mln_runtime_event_handler = unsafe { std::mem::zeroed() };
         raw.size = std::mem::size_of::<sys::mln_runtime_event_handler>() as _;
         raw.callback = Some(Self::callback_trampoline as _);
-        if !(raw.callback.is_none()) {
-            let state = self.clone();
-            // SAFETY: a queue runs the handler with a delivery of its
-            // batch, which stays valid until the handler returns.
-            let deliver = move |delivery: *const std::ffi::c_void,
-                                take: &dyn Fn() -> Result<()>| {
-                state.deliver(unsafe { &*delivery.cast() }, take)
-            };
-            // SAFETY: a shared record is `Send` and `Sync`.
-            if let Some((queue, token)) = arena
-                .queued_registration(delivery::local::<K>(), || unsafe {
-                    delivery::registration::<K>(deliver)
-                })?
-            {
-                raw.callback = None;
-                raw.user_data = token;
-                raw.queue = queue;
-                return Ok(raw);
-            }
-        }
         if !(raw.callback.is_none()) {
             // SAFETY: the release reclaims exactly this state.
             raw.user_data = unsafe { arena.registration(self.clone(), callback::release::<Self>) };
@@ -6033,7 +5462,6 @@ impl FromNative<sys::mln_vulkan_texture_frame> for VulkanTextureFrame {
 #[derive(Clone, Default)]
 pub struct Wake {
     pub callback: Option<std::sync::Arc<dyn Fn() + Send + Sync + 'static>>,
-    native: Option<callback::NativeRegistration<(unsafe extern "C" fn(*mut std::ffi::c_void),)>>,
 }
 impl std::fmt::Debug for Wake {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -6054,28 +5482,6 @@ impl Wake {
     {
         Self::default().with_callback(callback)
     }
-    /// A registration whose callbacks native code supplies, called with
-    /// `user_data`. The first submission that takes the record, or a copy
-    /// of it, owns the context: native releases it after accepting the
-    /// record, and a refused submission releases it before it returns. A
-    /// later submission fails with `Status::InvalidState`. A record that
-    /// no submission takes releases it when its last copy drops.
-    ///
-    /// # Safety
-    /// The callbacks and `release` must meet the C contract with
-    /// `user_data` on any thread, and `release` must free it once.
-    pub unsafe fn native(
-        callback: unsafe extern "C" fn(*mut std::ffi::c_void),
-        user_data: *mut std::ffi::c_void,
-        release: Option<unsafe extern "C" fn(*mut std::ffi::c_void)>,
-    ) -> Self {
-        // SAFETY: the caller vouches for the callbacks and the release.
-        let native = unsafe { callback::NativeRegistration::new((callback,), user_data, release) };
-        Self {
-            native: Some(native),
-            ..Self::default()
-        }
-    }
     unsafe extern "C" fn callback_trampoline(user_data: *mut std::ffi::c_void) {
         // SAFETY: native passes the registration that this trampoline's
         // descriptor transferred.
@@ -6093,18 +5499,6 @@ impl ToNative<sys::mln_wake> for Wake {
             .callback
             .as_ref()
             .map(|_| Self::callback_trampoline as _);
-        if let Some(native) = &self.native {
-            if !(raw.callback.is_none()) {
-                return Err(Error::invalid_argument(
-                    "a native registration takes no host callbacks",
-                ));
-            }
-            let ((callback,), user_data, release) = native.take(arena)?;
-            raw.callback = Some(callback);
-            raw.user_data = user_data;
-            raw.release_user_data = release;
-            return Ok(raw);
-        }
         if !(raw.callback.is_none()) {
             // SAFETY: the release reclaims exactly this state.
             raw.user_data = unsafe { arena.registration(self.clone(), callback::release::<Self>) };

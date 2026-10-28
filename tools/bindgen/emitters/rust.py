@@ -6,7 +6,7 @@ from collections import defaultdict
 
 from tools.bindgen import docs
 from tools.bindgen.compiler import compile_api, served
-from tools.bindgen.protocol import COMPLETION_RESULT, DELIVERY_BATCH_VIEW, STATUS
+from tools.bindgen.protocol import COMPLETION_RESULT, STATUS
 from tools.bindgen.semantic import (
     BoundApi,
     OperationPlan,
@@ -334,8 +334,6 @@ def lower(api: Api | BoundApi) -> Lowered:
     unsupported.update(
         {name: "\n".join(reasons) for name, reasons in bound.unsupported.items()}
     )
-    # Queued views need the delivery protocol, which the runtime drives.
-    delivers = delivers_queues(bound)
     for plan in bound.operations:
         function = plan.function
         previous_values = dict(value_types.used)
@@ -351,15 +349,6 @@ def lower(api: Api | BoundApi) -> Lowered:
             if plan.completion and plan.completion.optional:
                 chunks[module].append(
                     gated(plan, operation(plan, value_types, discard=True)[1])
-                )
-            if delivers and queues(plan):
-                queued_module = (
-                    module
-                    if plan.consumes or module == "global"
-                    else f"queued:{module}"
-                )
-                chunks[queued_module].append(
-                    gated(plan, operation(plan, value_types, queued=True)[1])
                 )
             generated.append(function.name)
         except Unsupported as error:
@@ -394,26 +383,6 @@ def lower(api: Api | BoundApi) -> Lowered:
         ]
         if views := chunks.pop(f"view:{native}", []):
             files[f"{root}/{module}.rs"] += rust_owners.view_guard(bound, handle, views)
-        if queued := chunks.pop(f"queued:{module}", []):
-            files[f"{root}/{module}.rs"] += rust_owners.queued_view(handle, queued)
-        # Only a command that carries a registration a queue can hold needs
-        # a queued form without a completion.
-        if delivers and (
-            queued_commands := [
-                p
-                for p in commands
-                if any(
-                    r.descriptor in value_types.queue_generic for r in p.registrations
-                )
-            ]
-        ):
-            files[f"{root}/{module}.rs"] += rust_owners.queued_discarding_view(
-                handle,
-                [
-                    gated(p, operation(p, value_types, discard=True, queued=True)[1])
-                    for p in queued_commands
-                ],
-            )
         if commands:
             owner = rust_owners.owner_name(native)
             view = f"{owner}Discarding"
@@ -440,7 +409,7 @@ def lower(api: Api | BoundApi) -> Lowered:
     declarations = [value_types.render()]
     files[f"{root}/values.rs"] = marker + "use super::*;\n\n" + "\n".join(declarations)
     files[f"{root}/mod.rs"] = marker + rust_owners.module_index(
-        owners, ["values", *modules], delivers=delivers
+        owners, ["values", *modules]
     )
     from . import rust_sys
 
@@ -456,20 +425,6 @@ def lower(api: Api | BoundApi) -> Lowered:
         unsupported,
         generated,
     )
-
-
-def delivers_queues(bound: BoundApi) -> bool:
-    """Whether the API declares the delivery protocol, which the runtime's
-    queues drive."""
-    return DELIVERY_BATCH_VIEW in bound.source.records_by_name
-
-
-def queues(plan: OperationPlan) -> bool:
-    """Whether an operation has a queue-mode form: a completion, or a
-    registration that a delivery queue can carry."""
-    if plan.scoped_receiver or plan.view:
-        return False
-    return bool(plan.completion) or any(r.queue for r in plan.registrations)
 
 
 def status_source(bound):
