@@ -31,7 +31,11 @@ SUITES: list[dict] = [
     {
         "platforms": ["linux-gnu", "macos", "windows"],
         "commands": [
-            {"task": "//bindings/rust:test", "exclude": ["linux-gnu-x64-vulkan"]},
+            {
+                "task": "//bindings/rust:test",
+                "exclude": ["linux-gnu-x64-vulkan"],
+                "architectures": ["riscv64", "loongarch64"],
+            },
             {
                 "task": "//bindings/rust:test",
                 "args": ["release"],
@@ -53,7 +57,10 @@ SUITES: list[dict] = [
     {
         "platforms": ["linux-musl"],
         "commands": [
-            {"task": "//bindings/rust:test"},
+            {
+                "task": "//bindings/rust:test",
+                "architectures": ["riscv64", "loongarch64"],
+            },
             {"task": "//bindings/dotnet:test"},
             {"task": "//bindings/go:test", "architectures": ["riscv64", "loongarch64"]},
             {
