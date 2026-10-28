@@ -4,13 +4,6 @@ issue = 936
 
 [[entry]]
 bindings = ["c"]
-platforms = ["linux-gnu", "linux-musl"]
-archs = ["riscv64", "loongarch64"]
-backends = ["vulkan", "opengl"]
-status = "not-investigated"
-
-[[entry]]
-bindings = ["c"]
 platforms = ["freebsd"]
 archs = ["arm64"]
 backends = ["vulkan", "opengl"]
@@ -68,6 +61,14 @@ platforms = ["ohos"]
 status = "blocked"
 reason = "Zig 0.17.0's `compiler_rt` needs `pthread_mutex_t` for emulated TLS on OpenHarmony, but `std.c` defines no layout for the `ohos` ABI."
 link = "https://codeberg.org/ziglang/zig/issues/31427"
+
+[[entry]]
+bindings = ["swift"]
+platforms = ["linux-gnu"]
+archs = ["riscv64"]
+status = "blocked"
+reason = "Swift's build lists RISC-V as a Linux target, but its standard library does not compile for it, and Swift.org ships no RISC-V toolchain."
+link = "https://github.com/swiftlang/swift/issues/78349"
 
 # Cells with a known path that no one has started.
 
@@ -207,6 +208,68 @@ status = "path-known"
 reason = "Community builds of CPython target OpenHarmony. Build the extension against one, and run the suite on the emulator."
 link = "https://gitcode.com/ai_model_sig/ohos_python"
 
+[[entry]]
+bindings = ["go"]
+platforms = ["linux-gnu", "linux-musl"]
+archs = ["riscv64", "loongarch64"]
+status = "path-known"
+reason = "The suite passes under QEMU's user-mode emulator except its test that runs its own executable again, which needs the runners to register QEMU with binfmt_misc."
+link = "https://github.com/maplibre/maplibre-native-ffi/pull/1327"
+
+[[entry]]
+bindings = ["rust"]
+platforms = ["linux-gnu", "linux-musl"]
+archs = ["riscv64", "loongarch64"]
+status = "path-known"
+reason = "The suite passes under QEMU's user-mode emulator except its test that runs its own executable again, which needs the runners to register QEMU with binfmt_misc."
+link = "https://github.com/maplibre/maplibre-native-ffi/pull/1328"
+
+[[entry]]
+bindings = ["dart"]
+platforms = ["linux-gnu"]
+archs = ["riscv64"]
+status = "path-known"
+reason = "The Dart SDK runs on RISC-V. Run the suite with it under QEMU's user-mode emulator."
+link = "https://dart.dev/get-dart"
+
+[[entry]]
+bindings = ["dotnet"]
+platforms = ["linux-gnu", "linux-musl"]
+archs = ["riscv64"]
+status = "path-known"
+reason = "Microsoft publishes no .NET for RISC-V, a community architecture of .NET, but a community build of the .NET 10 SDK covers both libcs. Run the suite with it under QEMU's user-mode emulator."
+link = "https://github.com/filipnavara/dotnet-riscv/releases"
+
+[[entry]]
+bindings = ["dotnet"]
+platforms = ["linux-gnu", "linux-musl"]
+archs = ["loongarch64"]
+status = "path-known"
+reason = "Microsoft publishes no .NET for LoongArch, a community architecture of .NET, but a community build of the .NET 10 SDK covers both libcs. Run the suite with it under QEMU's user-mode emulator."
+link = "https://github.com/chenguohui/dotnet-loongarch/releases"
+
+[[entry]]
+bindings = ["dart"]
+platforms = ["linux-gnu"]
+archs = ["loongarch64"]
+status = "path-known"
+reason = "Dart's maintainers do not plan to support LoongArch, but a community fork publishes Dart SDKs for it. Run the suite with one under QEMU's user-mode emulator."
+link = "https://github.com/Flutter-Dart-loong64/flutter-loong64-releases"
+
+[[entry]]
+bindings = ["kotlin-jvm", "python"]
+platforms = ["linux-gnu", "linux-musl"]
+archs = ["riscv64", "loongarch64"]
+status = "path-known"
+reason = "Debian and Alpine package OpenJDK and Python for both architectures. Package the binding's native part for them, and run the suite with the distribution's runtime under QEMU's user-mode emulator."
+
+[[entry]]
+bindings = ["typescript"]
+platforms = ["linux-gnu"]
+archs = ["riscv64", "loongarch64"]
+status = "path-known"
+reason = "Debian packages Node.js for both architectures. Build the addon for them, and run the Node.js suite with Debian's Node.js under QEMU's user-mode emulator."
+
 # Cells that the binding's toolchain does not target.
 
 [[entry]]
@@ -264,6 +327,30 @@ platforms = ["linux-musl", "freebsd", "ios-maccatalyst", "visionos"]
 status = "not-applicable"
 reason = "Kotlin/Native has no target for these platforms."
 link = "https://kotlinlang.org/docs/native-target-support.html"
+
+[[entry]]
+bindings = ["kotlin-native"]
+platforms = ["linux-gnu"]
+archs = ["riscv64", "loongarch64"]
+status = "not-applicable"
+reason = "Kotlin/Native has no target for these architectures."
+link = "https://kotlinlang.org/docs/native-target-support.html"
+
+[[entry]]
+bindings = ["swift"]
+platforms = ["linux-gnu", "linux-musl"]
+archs = ["loongarch64"]
+status = "not-applicable"
+reason = "Swift has no LoongArch target, and no community toolchain adds one."
+link = "https://github.com/swiftlang/swift/blob/main/utils/swift_build_support/swift_build_support/targets.py"
+
+[[entry]]
+bindings = ["swift"]
+platforms = ["linux-musl"]
+archs = ["riscv64"]
+status = "not-applicable"
+reason = "Swift's static Linux SDK, its only musl target, covers x86_64 and aarch64 alone."
+link = "https://github.com/swiftlang/swift/blob/main/utils/swift_build_support/swift_build_support/targets.py"
 
 [[entry]]
 bindings = ["swift"]

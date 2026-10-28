@@ -16,6 +16,10 @@ DESKTOP = {"linux-gnu", "linux-musl", "macos", "windows"}
 # the examples need x86_64 runtimes or dependencies that the runners lack.
 MACOS_X64 = ["macos-x64-metal"]
 
+# Most binding toolchains target neither RISC-V nor LoongArch, so a target on
+# one of these runs a command only when the command's `architectures` name it.
+OPT_IN_ARCHITECTURES = {"riscv64", "loongarch64"}
+
 # Desktop suites run in the matching native target job and reuse its build tree.
 #
 # Every example's `smoke` task renders one frame and exits. A command marked
@@ -52,7 +56,10 @@ SUITES: list[dict] = [
             {"task": "//bindings/rust:test"},
             {"task": "//bindings/dotnet:test"},
             {"task": "//bindings/go:test"},
-            {"task": "//bindings/zig:test"},
+            {
+                "task": "//bindings/zig:test",
+                "architectures": ["riscv64", "loongarch64"],
+            },
             {"task": "//bindings/python:test"},
         ],
     },
@@ -80,7 +87,10 @@ SUITES: list[dict] = [
         "platforms": ["linux-gnu", "macos", "windows"],
         "exclude": ["windows-arm64-wgl", "windows-arm64-vulkan"],
         "commands": [
-            {"task": "//bindings/zig:test"},
+            {
+                "task": "//bindings/zig:test",
+                "architectures": ["riscv64", "loongarch64"],
+            },
             {
                 "task": "//examples/zig-map:smoke",
                 "exclude": MACOS_X64,
@@ -235,6 +245,10 @@ def desktop_commands(target: Target) -> list[tuple[list[str], dict[str, str], bo
             if command.get("include") and preset not in command["include"]:
                 continue
             if preset in command.get("exclude", []):
+                continue
+            if target.architecture in OPT_IN_ARCHITECTURES and (
+                target.architecture not in command.get("architectures", [])
+            ):
                 continue
             # Windows surface coverage lives in the native suite. Windowed
             # examples run on Linux and macOS; headless examples still run here.

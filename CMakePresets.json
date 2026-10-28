@@ -85,6 +85,92 @@
       "vendor": { "maplibre-native-ffi": { "unit": "linux-musl" } }
     },
     {
+      "name": "_linux-riscv64",
+      "hidden": true,
+      "inherits": "_single-config",
+      "toolchainFile": "${fileDir}/cmake/toolchains/zig.cmake",
+      "cacheVariables": {
+        "MLN_FFI_TARGET_ARCHITECTURE": "riscv64",
+        "MLN_FFI_TARGET_PLATFORM": "linux-gnu-riscv64",
+        "MLN_FFI_ZIG_TARGET": "riscv64-linux-gnu",
+        "MLN_FFI_RUST_TARGET": "riscv64gc-unknown-linux-gnu",
+        "MLN_FFI_ZIG_SYSROOT": "${sourceDir}/build/sysroot/riscv64",
+        "MLN_FFI_DEFAULT_RENDER_BACKEND": "vulkan"
+      },
+      "vendor": {
+        "maplibre-native-ffi": {
+          "unit": "linux-riscv64",
+          "runner": "blacksmith-4vcpu-ubuntu-2404",
+          "device": {
+            "name": "QEMU user mode",
+            "command": "tools/devices/linux-root gnu riscv64"
+          }
+        }
+      }
+    },
+    {
+      "name": "_linux-musl-riscv64",
+      "hidden": true,
+      "inherits": "_linux-riscv64",
+      "cacheVariables": {
+        "MLN_FFI_ZIG_LIBC": "musl",
+        "MLN_FFI_TARGET_PLATFORM": "linux-musl-riscv64",
+        "MLN_FFI_ZIG_TARGET": "riscv64-linux-musl",
+        "MLN_FFI_RUST_TARGET": "riscv64gc-unknown-linux-musl"
+      },
+      "vendor": {
+        "maplibre-native-ffi": {
+          "device": {
+            "name": "QEMU user mode",
+            "command": "tools/devices/linux-root musl riscv64"
+          }
+        }
+      }
+    },
+    {
+      "name": "_linux-loongarch64",
+      "hidden": true,
+      "inherits": "_single-config",
+      "toolchainFile": "${fileDir}/cmake/toolchains/zig.cmake",
+      "cacheVariables": {
+        "MLN_FFI_TARGET_ARCHITECTURE": "loongarch64",
+        "MLN_FFI_TARGET_PLATFORM": "linux-gnu-loongarch64",
+        "MLN_FFI_ZIG_TARGET": "loongarch64-linux-gnu",
+        "MLN_FFI_RUST_TARGET": "loongarch64-unknown-linux-gnu",
+        "MLN_FFI_ZIG_SYSROOT": "${sourceDir}/build/sysroot/loongarch64",
+        "MLN_FFI_DEFAULT_RENDER_BACKEND": "vulkan"
+      },
+      "vendor": {
+        "maplibre-native-ffi": {
+          "unit": "linux-loongarch64",
+          "runner": "blacksmith-4vcpu-ubuntu-2404",
+          "device": {
+            "name": "QEMU user mode",
+            "command": "tools/devices/linux-root gnu loongarch64"
+          }
+        }
+      }
+    },
+    {
+      "name": "_linux-musl-loongarch64",
+      "hidden": true,
+      "inherits": "_linux-loongarch64",
+      "cacheVariables": {
+        "MLN_FFI_ZIG_LIBC": "musl",
+        "MLN_FFI_TARGET_PLATFORM": "linux-musl-loongarch64",
+        "MLN_FFI_ZIG_TARGET": "loongarch64-linux-musl",
+        "MLN_FFI_RUST_TARGET": "loongarch64-unknown-linux-musl"
+      },
+      "vendor": {
+        "maplibre-native-ffi": {
+          "device": {
+            "name": "QEMU user mode",
+            "command": "tools/devices/linux-root musl loongarch64"
+          }
+        }
+      }
+    },
+    {
       "name": "_freebsd-x64",
       "hidden": true,
       "inherits": "_single-config",
@@ -458,6 +544,46 @@
       "name": "linux-musl-arm64-vulkan",
       "displayName": "Linux musl ARM64 Vulkan",
       "inherits": ["_linux-musl-arm64", "_vulkan"]
+    },
+    {
+      "name": "linux-gnu-riscv64-egl",
+      "displayName": "Linux GNU RISC-V64 EGL",
+      "inherits": ["_linux-riscv64", "_egl"]
+    },
+    {
+      "name": "linux-gnu-riscv64-vulkan",
+      "displayName": "Linux GNU RISC-V64 Vulkan",
+      "inherits": ["_linux-riscv64", "_vulkan"]
+    },
+    {
+      "name": "linux-gnu-loongarch64-egl",
+      "displayName": "Linux GNU LoongArch64 EGL",
+      "inherits": ["_linux-loongarch64", "_egl"]
+    },
+    {
+      "name": "linux-gnu-loongarch64-vulkan",
+      "displayName": "Linux GNU LoongArch64 Vulkan",
+      "inherits": ["_linux-loongarch64", "_vulkan"]
+    },
+    {
+      "name": "linux-musl-riscv64-egl",
+      "displayName": "Linux musl RISC-V64 EGL",
+      "inherits": ["_linux-musl-riscv64", "_egl"]
+    },
+    {
+      "name": "linux-musl-riscv64-vulkan",
+      "displayName": "Linux musl RISC-V64 Vulkan",
+      "inherits": ["_linux-musl-riscv64", "_vulkan"]
+    },
+    {
+      "name": "linux-musl-loongarch64-egl",
+      "displayName": "Linux musl LoongArch64 EGL",
+      "inherits": ["_linux-musl-loongarch64", "_egl"]
+    },
+    {
+      "name": "linux-musl-loongarch64-vulkan",
+      "displayName": "Linux musl LoongArch64 Vulkan",
+      "inherits": ["_linux-musl-loongarch64", "_vulkan"]
     },
     {
       "name": "freebsd-x64-egl",

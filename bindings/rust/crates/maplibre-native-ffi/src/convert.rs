@@ -391,93 +391,28 @@ pub(crate) unsafe fn copy_reference<N: Copy, T: FromNative<N>>(pointer: *const N
     unsafe { T::from_native(*value) }
 }
 
-/// A registration's handler in queue mode, which runs its record's callback
-/// for the drained `mln_delivery` it receives a pointer to. `take` transfers
-/// the delivery's owned handles to the binding before a callback adopts them.
-pub type RegistrationHandler =
-    std::sync::Arc<dyn Fn(*const c_void, &dyn Fn() -> Result<()>) + Send + Sync>;
-
-/// A local registration's handler, which only its queue's thread runs.
-pub type LocalRegistrationHandler = std::sync::Arc<dyn Fn(*const c_void, &dyn Fn() -> Result<()>)>;
-
-/// A registration's handler, of the kind of its record.
-pub enum Handler {
-    Shared(RegistrationHandler),
-    Local(LocalRegistrationHandler),
-}
-
-/// The delivery queue that a queue-mode call stores its registrations' handlers
-/// in.
-pub(crate) trait QueueSink {
-    /// Stores a handler before its registration enters C, and returns the
-    /// queue and the token that the registration names.
-    /// A local handler fails on a shared queue.
-    fn hold(&self, handler: Handler) -> Result<(sys::mln_delivery_queue, *mut c_void)>;
-    /// Native accepted the registration, so the queue keeps its handler, or
-    /// drops it when the queue closed during the call.
-    fn accept(&self, user_data: *mut c_void);
-    /// Native rejected the registration, so its handler drops unrun.
-    fn forget(&self, user_data: *mut c_void);
-}
-
-/// Owns temporary C input allocations through native submission, and the
-/// registrations that native has not accepted yet.
+/// Owns temporary C input allocations through native submission.
 #[derive(Default)]
-pub(crate) struct InputArena<'q> {
+pub(crate) struct InputArena {
     roots: Vec<Box<dyn std::any::Any>>,
-    registrations: Vec<PendingRegistration<'q>>,
-    /// The queue that this call's registrations name, in queue mode.
-    queue: Option<&'q dyn QueueSink>,
+    registrations: Vec<PendingRegistration>,
 }
 
-enum PendingRegistration<'q> {
-    Callback {
-        pointer: *mut c_void,
-        release: unsafe extern "C" fn(*mut c_void),
-    },
-    Queued(&'q dyn QueueSink, *mut c_void),
+struct PendingRegistration {
+    pointer: *mut c_void,
+    release: unsafe extern "C" fn(*mut c_void),
 }
 
-impl Drop for InputArena<'_> {
+impl Drop for InputArena {
     fn drop(&mut self) {
         for registration in self.registrations.drain(..) {
-            match registration {
-                // SAFETY: rejected submission left each pending root owned by this arena.
-                PendingRegistration::Callback { pointer, release } => unsafe { release(pointer) },
-                PendingRegistration::Queued(queue, user_data) => queue.forget(user_data),
-            }
+            // SAFETY: rejected submission left each pending root owned by this arena.
+            unsafe { (registration.release)(registration.pointer) };
         }
     }
 }
 
-impl<'q> InputArena<'q> {
-    /// Puts this call's registrations in queue mode on `queue`.
-    pub(crate) fn set_queue(&mut self, queue: &'q dyn QueueSink) {
-        self.queue = Some(queue);
-    }
-
-    /// Stores a registration's handler in this call's queue, and returns the
-    /// queue and token that the registration names; or `None` in callback
-    /// mode, which a `local` registration can't use.
-    pub(crate) fn queued_registration(
-        &mut self,
-        local: bool,
-        handler: impl FnOnce() -> Handler,
-    ) -> Result<Option<(sys::mln_delivery_queue, *mut c_void)>> {
-        let Some(queue) = self.queue else {
-            if local {
-                return Err(Error::invalid_argument(
-                    "a local registration needs a local delivery queue",
-                ));
-            }
-            return Ok(None);
-        };
-        let (raw, user_data) = queue.hold(handler())?;
-        self.registrations
-            .push(PendingRegistration::Queued(queue, user_data));
-        Ok(Some((raw, user_data)))
-    }
-
+impl InputArena {
     /// Stores a pending native registration.
     ///
     /// # Safety
@@ -488,32 +423,14 @@ impl<'q> InputArena<'q> {
         release: unsafe extern "C" fn(*mut c_void),
     ) -> *mut c_void {
         let pointer = Box::into_raw(Box::new(state)).cast();
-        // SAFETY: the caller's release reclaims the box once.
-        unsafe { self.track(pointer, release) };
-        pointer
-    }
-
-    /// Holds an existing context until native accepts its registration, and
-    /// releases it through `release` otherwise.
-    ///
-    /// # Safety
-    /// `release` must free `pointer` exactly once without unwinding.
-    pub(crate) unsafe fn track(
-        &mut self,
-        pointer: *mut c_void,
-        release: unsafe extern "C" fn(*mut c_void),
-    ) {
         self.registrations
-            .push(PendingRegistration::Callback { pointer, release });
+            .push(PendingRegistration { pointer, release });
+        pointer
     }
 
     /// Transfers pending callback roots after native accepts their registration.
     pub(crate) fn accept_registrations(&mut self) {
-        for registration in self.registrations.drain(..) {
-            if let PendingRegistration::Queued(queue, user_data) = registration {
-                queue.accept(user_data);
-            }
-        }
+        self.registrations.clear();
     }
 
     pub(crate) fn store<T: 'static>(&mut self, value: T) -> *const T {
