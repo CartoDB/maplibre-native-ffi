@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+# Lays out the target-architecture EGL, OpenGL ES, and Vulkan loaders that the
+# Linux test harness links, for an architecture that the build host's multiarch
+# directories lack. cmake/toolchains/zig.cmake runs this for a preset that sets
+# MLN_FFI_ZIG_SYSROOT, and finds the loaders there.
+#
+#   tools/deps/sync-linux-sysroot <riscv64|loongarch64> <directory>
+#
+# The library itself resolves its loaders at run time, so only the harness
+# links these, and the tests load the loaders of the system they run on. Both
+# libcs link against Debian's, since the linker reads only their sonames and
+# symbols. A container of the host's own architecture downloads the packages,
+# so no emulation is needed.
+set -euo pipefail
+
+if [[ $# -ne 2 ]]; then
+  echo "usage: ${0##*/} <riscv64|loongarch64> <directory>" >&2
+  exit 2
+fi
+architecture=$1
+sysroot=$2
+case "$architecture" in
+  riscv64) debian_architecture=riscv64 ;;
+  loongarch64) debian_architecture=loong64 ;;
+  *)
+    echo "Unsupported sysroot architecture: $architecture" >&2
+    exit 2
+    ;;
+esac
+
+if [[ -f "$sysroot/.complete" ]]; then
+  exit 0
+fi
+
+if command -v docker >/dev/null; then
+  container_engine=docker
+elif command -v podman >/dev/null; then
+  container_engine=podman
+else
+  echo "The $architecture sysroot requires Docker or Podman to download Debian's packages." >&2
+  exit 2
+fi
+
+# Unpack into a scratch directory beside the result, then rename it into
+# place, so an interrupted run leaves no partial tree for a build to find.
+staging="$sysroot.partial"
+rm -rf "$staging"
+mkdir -p "$staging"
+trap 'rm -rf "$staging"' EXIT
+staging=$(cd "$staging" && pwd)
+
+# Debian's testing suite carries both architectures; no stable release carries
+# loong64 yet. The container streams each package's file tree, which the host
+# unpacks as its own user. Only the libraries are kept: the headers come from
+# the host, as they do for every other Linux build.
+# shellcheck disable=SC2016
+"$container_engine" run --rm debian:forky sh -euc '
+  dpkg --add-architecture "$1"
+  apt-get update -qq >&2
+  cd /tmp
+  apt-get download -qq \
+    "libegl-dev:$1" "libegl1:$1" \
+    "libgles-dev:$1" "libgles2:$1" \
+    "libvulkan-dev:$1" "libvulkan1:$1" >&2
+  for package in ./*.deb; do
+    dpkg-deb --fsys-tarfile "$package"
+  done
+' sh "$debian_architecture" |
+  tar --extract --ignore-zeros --wildcards --directory "$staging" './usr/lib/*'
+
+touch "$staging/.complete"
+rm -rf "$sysroot"
+mv "$staging" "$sysroot"

@@ -9,26 +9,6 @@ issue = 936
 # Native targets that the C library does not build yet.
 
 [[planned]]
-platform = "linux-gnu"
-arch = "riscv64"
-backends = ["vulkan", "opengl"]
-
-[[planned]]
-platform = "linux-gnu"
-arch = "loongarch64"
-backends = ["vulkan", "opengl"]
-
-[[planned]]
-platform = "linux-musl"
-arch = "riscv64"
-backends = ["vulkan", "opengl"]
-
-[[planned]]
-platform = "linux-musl"
-arch = "loongarch64"
-backends = ["vulkan", "opengl"]
-
-[[planned]]
 platform = "windows-mingw"
 arch = "x64"
 backends = ["vulkan", "opengl"]

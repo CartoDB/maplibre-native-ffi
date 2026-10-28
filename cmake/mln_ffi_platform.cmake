@@ -7,6 +7,8 @@ function(mln_ffi_validate_platform)
     set(MLN_FFI_DETECTED_ARCHITECTURE x64)
   elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)$")
     set(MLN_FFI_DETECTED_ARCHITECTURE arm64)
+  elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^(riscv64|loongarch64)$")
+    set(MLN_FFI_DETECTED_ARCHITECTURE "${CMAKE_SYSTEM_PROCESSOR}")
   else()
     message(
       FATAL_ERROR
@@ -21,6 +23,10 @@ function(mln_ffi_validate_platform)
     set(MLN_FFI_RUST_ARCHITECTURE x64)
   elseif(MLN_FFI_RUST_TARGET MATCHES "^aarch64-")
     set(MLN_FFI_RUST_ARCHITECTURE arm64)
+  elseif(MLN_FFI_RUST_TARGET MATCHES "^riscv64[a-z]*-")
+    set(MLN_FFI_RUST_ARCHITECTURE riscv64)
+  elseif(MLN_FFI_RUST_TARGET MATCHES "^loongarch64-")
+    set(MLN_FFI_RUST_ARCHITECTURE loongarch64)
   else()
     message(
       FATAL_ERROR

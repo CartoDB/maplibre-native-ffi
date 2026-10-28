@@ -11,7 +11,8 @@
 # A same-architecture glibc preset is a native build, so CMAKE_SYSTEM_NAME stays
 # unset and try_run, find_package, and test binaries work on the host. Musl and
 # FreeBSD are always cross builds, and run their test binaries inside Alpine
-# and a FreeBSD virtual machine.
+# and a FreeBSD virtual machine. The RISC-V and LoongArch presets cross-compile
+# from any host.
 
 if(NOT CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux")
   message(FATAL_ERROR "cmake/toolchains/zig.cmake targets Linux hosts")
@@ -24,8 +25,6 @@ if(NOT MLN_FFI_ZIG_OS MATCHES "^(linux|freebsd)$")
   message(
     FATAL_ERROR "Unsupported Zig target operating system: ${MLN_FFI_ZIG_OS}")
 endif()
-set(MLN_FFI_ZIG_GLIBC "2.17"
-    CACHE STRING "Oldest glibc release the Linux artifacts may require")
 set(MLN_FFI_ZIG_LIBC "gnu"
     CACHE STRING "Linux libc ABI to target (gnu or musl)")
 set_property(CACHE MLN_FFI_ZIG_LIBC PROPERTY STRINGS gnu musl)
@@ -36,6 +35,9 @@ endif()
 set(MLN_FFI_ZIG_FREEBSD "14.0"
     CACHE STRING "Oldest FreeBSD release the FreeBSD artifacts may require")
 
+set(MLN_FFI_ZIG_SYSROOT ""
+    CACHE PATH "Target-architecture graphics loaders for the test harness")
+
 list(
   APPEND
   CMAKE_TRY_COMPILE_PLATFORM_VARIABLES
@@ -43,17 +45,29 @@ list(
   MLN_FFI_ZIG_OS
   MLN_FFI_ZIG_GLIBC
   MLN_FFI_ZIG_LIBC
-  MLN_FFI_ZIG_FREEBSD)
+  MLN_FFI_ZIG_FREEBSD
+  MLN_FFI_ZIG_SYSROOT)
 
+# The glibc floor is the first release that supports the architecture.
 if(MLN_FFI_TARGET_ARCHITECTURE STREQUAL "arm64")
   set(MLN_FFI_ZIG_ARCH "aarch64")
+  set(MLN_FFI_ZIG_GLIBC_FLOOR "2.17")
 elseif(MLN_FFI_TARGET_ARCHITECTURE STREQUAL "x64")
   set(MLN_FFI_ZIG_ARCH "x86_64")
+  set(MLN_FFI_ZIG_GLIBC_FLOOR "2.17")
+elseif(MLN_FFI_TARGET_ARCHITECTURE STREQUAL "riscv64")
+  set(MLN_FFI_ZIG_ARCH "riscv64")
+  set(MLN_FFI_ZIG_GLIBC_FLOOR "2.27")
+elseif(MLN_FFI_TARGET_ARCHITECTURE STREQUAL "loongarch64")
+  set(MLN_FFI_ZIG_ARCH "loongarch64")
+  set(MLN_FFI_ZIG_GLIBC_FLOOR "2.36")
 else()
   message(
     FATAL_ERROR
       "Unsupported Zig target architecture: ${MLN_FFI_TARGET_ARCHITECTURE}")
 endif()
+set(MLN_FFI_ZIG_GLIBC "${MLN_FFI_ZIG_GLIBC_FLOOR}"
+    CACHE STRING "Oldest glibc release the Linux artifacts may require")
 
 if(MLN_FFI_ZIG_OS STREQUAL "freebsd")
   set(MLN_FFI_ZIG_TRIPLE
@@ -82,15 +96,7 @@ find_program(MLN_FFI_ZIG NAMES zig REQUIRED)
 # Generate one wrapper per driver mode. The toolchain file is re-read for every
 # try_compile, so each scratch tree gets its own copy alongside the main one.
 set(MLN_FFI_ZIG_SHIM_DIR "${CMAKE_BINARY_DIR}/zig-shim")
-foreach(MLN_FFI_ZIG_MODE cc c++)
-  set(MLN_FFI_ZIG_SHIM "${MLN_FFI_ZIG_SHIM_DIR}/zig-${MLN_FFI_ZIG_MODE}")
-  configure_file(
-    "${CMAKE_CURRENT_LIST_DIR}/zig-compiler.in" "${MLN_FFI_ZIG_SHIM}"
-    @ONLY)
-  file(
-    CHMOD
-    "${MLN_FFI_ZIG_SHIM}"
-    PERMISSIONS
+set(MLN_FFI_SHIM_PERMISSIONS
     OWNER_READ
     OWNER_WRITE
     OWNER_EXECUTE
@@ -98,33 +104,70 @@ foreach(MLN_FFI_ZIG_MODE cc c++)
     GROUP_EXECUTE
     WORLD_READ
     WORLD_EXECUTE)
+foreach(MLN_FFI_ZIG_MODE cc c++)
+  set(MLN_FFI_ZIG_SHIM "${MLN_FFI_ZIG_SHIM_DIR}/zig-${MLN_FFI_ZIG_MODE}")
+  configure_file(
+    "${CMAKE_CURRENT_LIST_DIR}/zig-compiler.in" "${MLN_FFI_ZIG_SHIM}"
+    @ONLY)
+  file(CHMOD "${MLN_FFI_ZIG_SHIM}" PERMISSIONS ${MLN_FFI_SHIM_PERMISSIONS})
 endforeach()
 
 set(CMAKE_C_COMPILER "${MLN_FFI_ZIG_SHIM_DIR}/zig-cc")
 set(CMAKE_CXX_COMPILER "${MLN_FFI_ZIG_SHIM_DIR}/zig-c++")
 
 # zig ships no standalone ar/ranlib/nm/objcopy, and CMake's clang heuristics
-# look for llvm-* beside the compiler. These only repackage relocatable objects,
-# so taking them from the host adds no glibc dependency.
-find_program(MLN_FFI_HOST_AR NAMES ar REQUIRED)
-find_program(MLN_FFI_HOST_RANLIB NAMES ranlib REQUIRED)
-find_program(MLN_FFI_HOST_LD NAMES ld REQUIRED)
-find_program(MLN_FFI_HOST_NM NAMES nm REQUIRED)
-find_program(MLN_FFI_HOST_OBJCOPY NAMES objcopy REQUIRED)
-find_program(MLN_FFI_HOST_OBJDUMP NAMES objdump REQUIRED)
-find_program(MLN_FFI_HOST_STRIP NAMES strip REQUIRED)
-set(CMAKE_AR "${MLN_FFI_HOST_AR}" CACHE FILEPATH "" FORCE)
-set(CMAKE_RANLIB "${MLN_FFI_HOST_RANLIB}" CACHE FILEPATH "" FORCE)
-set(CMAKE_LINKER "${MLN_FFI_HOST_LD}" CACHE FILEPATH "" FORCE)
-set(CMAKE_NM "${MLN_FFI_HOST_NM}" CACHE FILEPATH "" FORCE)
-set(CMAKE_OBJCOPY "${MLN_FFI_HOST_OBJCOPY}" CACHE FILEPATH "" FORCE)
-set(CMAKE_OBJDUMP "${MLN_FFI_HOST_OBJDUMP}" CACHE FILEPATH "" FORCE)
-set(CMAKE_STRIP "${MLN_FFI_HOST_STRIP}" CACHE FILEPATH "" FORCE)
+# look for llvm-* beside the compiler. The host's binutils know only its own
+# architecture, so these come from the Rust toolchain that every Linux build
+# already needs for the platform crate: its llvm-tools component and its lld.
+find_program(MLN_FFI_RUSTC NAMES rustc REQUIRED)
+execute_process(
+  COMMAND "${MLN_FFI_RUSTC}" --print sysroot
+  OUTPUT_VARIABLE MLN_FFI_RUST_SYSROOT OUTPUT_STRIP_TRAILING_WHITESPACE
+  COMMAND_ERROR_IS_FATAL ANY)
+execute_process(
+  COMMAND "${MLN_FFI_RUSTC}" --print host-tuple
+  OUTPUT_VARIABLE MLN_FFI_RUST_HOST OUTPUT_STRIP_TRAILING_WHITESPACE
+  COMMAND_ERROR_IS_FATAL ANY)
+set(MLN_FFI_LLVM_TOOLS
+    "${MLN_FFI_RUST_SYSROOT}/lib/rustlib/${MLN_FFI_RUST_HOST}/bin")
+foreach(MLN_FFI_LLVM_TOOL ar nm objcopy objdump strip)
+  if(NOT EXISTS "${MLN_FFI_LLVM_TOOLS}/llvm-${MLN_FFI_LLVM_TOOL}")
+    message(
+      FATAL_ERROR
+        "The Rust toolchain has no llvm-${MLN_FFI_LLVM_TOOL}; add its llvm-tools component")
+  endif()
+  string(TOUPPER "${MLN_FFI_LLVM_TOOL}" MLN_FFI_LLVM_VARIABLE)
+  set(CMAKE_${MLN_FFI_LLVM_VARIABLE}
+      "${MLN_FFI_LLVM_TOOLS}/llvm-${MLN_FFI_LLVM_TOOL}"
+      CACHE FILEPATH "" FORCE)
+endforeach()
+set(CMAKE_LINKER "${MLN_FFI_LLVM_TOOLS}/gcc-ld/ld.lld" CACHE FILEPATH "" FORCE)
+# llvm-tools installs no llvm-ranlib, whose work is llvm-ar's `s` operation.
+set(MLN_FFI_RANLIB_SHIM "${MLN_FFI_ZIG_SHIM_DIR}/ranlib")
+file(WRITE "${MLN_FFI_RANLIB_SHIM}" "#!/bin/sh\nexec '${CMAKE_AR}' s \"$@\"\n")
+file(CHMOD "${MLN_FFI_RANLIB_SHIM}" PERMISSIONS ${MLN_FFI_SHIM_PERMISSIONS})
+set(CMAKE_RANLIB "${MLN_FFI_RANLIB_SHIM}" CACHE FILEPATH "" FORCE)
 
 # zig reports no implicit link directories, so CMake leaves
 # CMAKE_LIBRARY_ARCHITECTURE empty and find_library never reaches the Debian
 # multiarch directory that holds the Vulkan and EGL loaders.
 set(CMAKE_LIBRARY_ARCHITECTURE "${MLN_FFI_ZIG_ARCH}-linux-gnu")
+
+# A host of another architecture has no loaders for the target, so a target
+# architecture that the CI runners lack brings its own.
+if(MLN_FFI_ZIG_SYSROOT)
+  execute_process(
+    COMMAND
+      "${CMAKE_CURRENT_LIST_DIR}/../../tools/deps/sync-linux-sysroot"
+      "${MLN_FFI_TARGET_ARCHITECTURE}" "${MLN_FFI_ZIG_SYSROOT}"
+    COMMAND_ERROR_IS_FATAL ANY)
+  set(CMAKE_FIND_ROOT_PATH "${MLN_FFI_ZIG_SYSROOT}")
+  set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
+  # The loaders stand in for the target's system libraries, so the test
+  # executables find the target's own at run time rather than these.
+  list(APPEND CMAKE_PLATFORM_IMPLICIT_LINK_DIRECTORIES
+       "${MLN_FFI_ZIG_SYSROOT}/usr/lib/${CMAKE_LIBRARY_ARCHITECTURE}")
+endif()
 
 # zig builds libc++, libc++abi, and libunwind from source the first time a
 # target needs them, and those vendored headers carry nullability annotations

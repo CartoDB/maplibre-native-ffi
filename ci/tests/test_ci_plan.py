@@ -201,11 +201,16 @@ class PresetTest(unittest.TestCase):
             mise_env = (
                 target.platform if target.platform in ("emscripten", "ohos") else ""
             )
-            # Only the Linux and Windows runners lack a GPU.
-            gpu = target.platform in ("linux-gnu", "linux-musl", "windows")
+            # Only the Linux and Windows runners lack a GPU. The RISC-V and
+            # LoongArch targets only build.
+            built_only = target.architecture in ("riscv64", "loongarch64")
+            gpu = (
+                target.platform in ("linux-gnu", "linux-musl", "windows")
+                and not built_only
+            )
             packages = zig.get(target.platform, "skip")
             # Windows ARM64 has no Zig toolchain.
-            if name.startswith("windows-arm64-"):
+            if name.startswith("windows-arm64-") or built_only:
                 packages = "skip"
             # macOS x64 runs the Zig binding suite without the examples.
             if name.startswith("macos-x64-"):

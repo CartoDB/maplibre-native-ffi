@@ -19,7 +19,7 @@ import dataclasses
 import json
 import pathlib
 
-from tools.ci.suites import target_suites
+from tools.ci.suites import OPT_IN_ARCHITECTURES, target_suites
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 VENDOR = "maplibre-native-ffi"
@@ -62,6 +62,13 @@ class Target:
     software_gpu: bool
 
 
+def packaged(platforms: set[str]):
+    """Select a binding package's targets, which include no RISC-V or LoongArch."""
+    return lambda target: (
+        target.platform in platforms and target.architecture not in OPT_IN_ARCHITECTURES
+    )
+
+
 # The jobs other than target jobs: the unit that owns each, and which targets it
 # consumes. A job runs whenever its unit does, and so do the targets it
 # consumes.
@@ -74,15 +81,15 @@ JOBS = {
     "apple-xcframework": ("swiftpm", lambda target: target.backend == "metal"),
     "kotlin-maven": (
         "maven",
-        lambda target: target.platform in KOTLIN_MAVEN_PLATFORMS,
+        packaged(KOTLIN_MAVEN_PLATFORMS),
     ),
     "dotnet-nuget": (
         "nuget",
-        lambda target: target.platform in DOTNET_NUGET_PLATFORMS,
+        packaged(DOTNET_NUGET_PLATFORMS),
     ),
     "python-wheels": (
         "pypi",
-        lambda target: target.platform in PYTHON_WHEEL_PLATFORMS,
+        packaged(PYTHON_WHEEL_PLATFORMS),
     ),
     "typescript-npm": ("npm", lambda target: addon(target) == "typescript"),
     "arkts-ohpm": ("ohpm", lambda target: addon(target) == "arkts"),
