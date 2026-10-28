@@ -419,40 +419,39 @@ fn a_queued_discarded_command_keeps_its_end_handler_until_it_retires() {
     await_queued_release(&dispatcher, &released);
 }
 
-/// A native wake's context: the signal its callback raises, and how often
-/// native released it.
+/// A native wake's context: the signal its callback raises, and the signal
+/// its release raises.
 #[derive(Default)]
 struct WakeContext {
     woken: Signal,
-    released: std::sync::atomic::AtomicUsize,
+    released: Signal,
 }
 
 unsafe extern "C" fn raise_wake(user_data: *mut std::ffi::c_void) {
-    // SAFETY: the test keeps its context alive past the queue's release.
+    // SAFETY: native holds a reference to the context until its release.
     unsafe { &*user_data.cast::<WakeContext>() }.woken.raise();
 }
 
 unsafe extern "C" fn release_wake(user_data: *mut std::ffi::c_void) {
-    // SAFETY: as above.
-    let context = unsafe { &*user_data.cast::<WakeContext>() };
-    context
-        .released
-        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    // SAFETY: native releases the reference the test gave it, once.
+    let context = unsafe { Arc::from_raw(user_data.cast::<WakeContext>()) };
+    context.released.raise();
 }
 
 #[test]
 fn a_native_wake_runs_in_native_and_its_queue_releases_it_once() {
-    use std::sync::atomic::Ordering::SeqCst;
     let fixture = Fixture::new();
     let context = Arc::new(WakeContext::default());
-    let user_data = Arc::as_ptr(&context).cast_mut().cast();
-    // SAFETY: the context outlives the queue, which releases it once.
+    // Native owns a reference, so the release callback can still use the
+    // context after the test sees its signal and drops its own.
+    let user_data = Arc::into_raw(Arc::clone(&context)).cast_mut().cast();
+    // SAFETY: the queue releases native's reference once.
     let wake = unsafe { Wake::native(raise_wake, user_data, Some(release_wake)) };
     let queue = DeliveryQueue::<Shared>::new(Some(wake.clone())).unwrap();
     // The queue took the context, so a copy of its wake is refused.
     let error = DeliveryQueue::<Shared>::new(Some(wake)).unwrap_err();
     assert_eq!(error.status(), Status::InvalidState);
-    assert_eq!(context.released.load(SeqCst), 0);
+    assert_eq!(context.released.seen(), 0);
 
     let seen = context.woken.seen();
     let (sender, results) = mpsc::channel();
@@ -468,8 +467,13 @@ fn a_native_wake_runs_in_native_and_its_queue_releases_it_once() {
         batch.dispatch();
     }
     received(&results).unwrap();
+    // Queue release returns without blocking. An in-flight wake call runs
+    // release_user_data when it returns, on that thread.
     drop(queue);
-    assert_eq!(context.released.load(SeqCst), 1);
+    context
+        .released
+        .wait_past(0, Instant::now() + timeout(), "the wake's release");
+    assert_eq!(context.released.seen(), 1);
 }
 
 #[test]
