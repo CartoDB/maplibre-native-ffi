@@ -17,6 +17,7 @@
 #include <vector>
 
 #include <mln/storage/resource_transform.hpp>
+#include <mln/text/glyph_cache.hpp>
 
 #include "completion/completion.hpp"
 #include "execution/control_state.hpp"
@@ -326,6 +327,9 @@ struct RuntimeObject {
   std::string asset_path;
   std::string cache_path;
   std::shared_ptr<mln::DatabaseFileSource> database_source;
+  // Every renderer of the runtime's maps shares the glyphs it parses.
+  std::shared_ptr<mln::GlyphCache> glyph_cache =
+    std::make_shared<mln::GlyphCache>();
   std::shared_ptr<mln::core::ResourceProviderState> resource_provider_state;
   std::shared_ptr<mln::core::OfflineRegionEventState> offline_event_state;
   std::shared_ptr<mln::core::ResourceTransformState> resource_transform_state;

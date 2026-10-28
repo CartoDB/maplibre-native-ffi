@@ -2184,7 +2184,8 @@ auto render_session_render_update_on_driver(
   if (live->renderer == nullptr) {
     try {
       live->renderer = std::make_unique<mln::Renderer>(
-        *backend, static_cast<float>(live->scale_factor)
+        *backend, static_cast<float>(live->scale_factor), std::nullopt,
+        live->map_object->runtime_state->glyph_cache
       );
 #if defined(__ANDROID__) && defined(MLN_RENDER_BACKEND_OPENGL)
       // Surface and texture sessions share this construction. Android OpenGL
