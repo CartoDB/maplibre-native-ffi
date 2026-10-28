@@ -2011,6 +2011,11 @@ public data class GraphicsDeviceOptions(
    * from zero. Without it, the backend picks its default adapter.
    */
   public val adapterIndex: UInt? = null,
+  /**
+   * Whether the device's texture sessions take turns rendering in one EGL context instead of each
+   * creating its own. Absent selects false.
+   */
+  public val singleContext: Boolean? = null,
 )
 
 /**

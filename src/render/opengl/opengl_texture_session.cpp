@@ -200,11 +200,13 @@ class OpenGLTextureBackend final : public mln::gl::RendererBackend,
  public:
   OpenGLTextureBackend(
     const mln_open_gl_owned_texture_descriptor& descriptor, mln::Size size,
-    std::size_t ring_depth
+    std::size_t ring_depth,
+    std::shared_ptr<mln::core::opengl::EglSingleContext> single
   )
       : mln::gl::RendererBackend(mln::core::opengl::session_context_mode),
         mln::gfx::HeadlessBackend(size),
         context_(descriptor.context),
+        single_(std::move(single)),
         ring_(ring_depth) {}
 
   OpenGLTextureBackend(const OpenGLBorrowedTarget& target, mln::Size size)
@@ -275,6 +277,23 @@ class OpenGLTextureBackend final : public mln::gl::RendererBackend,
       mln::gl::RendererBackend::ImplicitFramebufferBinding
     );
   }
+
+#if defined(MLN_FFI_OPENGL_PROVIDER_EGL)
+  // Runs when another session rendered in the single context since this one
+  // did and left its own GL state behind. A new gl::Context needs none of it,
+  // since it starts with every state dirty. The renderbuffer binding is
+  // private, but MapLibre unbinds every renderbuffer it creates before it
+  // returns, so it is still zero.
+  static void forget_gl_state(mln::gl::Context& gl) {
+    gl.setDirtyState();
+    gl.bindFramebuffer.setDirty();
+    gl.viewport.setDirty();
+    // DrawableGL::draw compares the program with getCurrentValue(), which
+    // ignores the dirty flag, so only a program that no drawable uses makes
+    // it call glUseProgram again, until maplibre/maplibre-native#4866 lands.
+    gl.program = 0;
+  }
+#endif
 
   auto texture() -> uint32_t {
     auto& renderable =
@@ -432,9 +451,12 @@ class OpenGLTextureBackend final : public mln::gl::RendererBackend,
     }
 #elif defined(MLN_FFI_OPENGL_PROVIDER_EGL)
     if (!egl_context_) {
-      egl_context_.emplace(context_.data.egl, context_.ownership);
+      egl_context_.emplace(context_.data.egl, context_.ownership, single_);
     }
     egl_context_->activate_pbuffer();
+    if (egl_context_->take_state_lost() && context) {
+      forget_gl_state(static_cast<mln::gl::Context&>(*context));
+    }
 #elif defined(MLN_FFI_OPENGL_PROVIDER_WEBGL)
     previous_webgl_context_ = emscripten_webgl_get_current_context();
     if (
@@ -561,6 +583,9 @@ class OpenGLTextureBackend final : public mln::gl::RendererBackend,
   }
 
   mln_open_gl_context_descriptor context_{};
+  // The device context an EGL session takes turns in, or null for a context
+  // of its own.
+  std::shared_ptr<mln::core::opengl::EglSingleContext> single_;
   // The caller's texture for each slot, or empty for a session-owned ring.
   std::vector<uint32_t> borrowed_textures_;
   mln::Size resource_size_{};
@@ -582,9 +607,10 @@ class OpenGLTextureSessionBackend final
  public:
   OpenGLTextureSessionBackend(
     const mln_open_gl_owned_texture_descriptor& descriptor, mln::Size size,
-    std::size_t ring_depth, mln_gpu_sync_kind producer_sync_kind
+    std::size_t ring_depth, mln_gpu_sync_kind producer_sync_kind,
+    std::shared_ptr<mln::core::opengl::EglSingleContext> single = nullptr
   )
-      : backend_(descriptor, size, ring_depth),
+      : backend_(descriptor, size, ring_depth, std::move(single)),
         producer_sync_kind_(producer_sync_kind) {}
 
   OpenGLTextureSessionBackend(
@@ -757,10 +783,11 @@ auto supported_render_backend_mask() noexcept -> uint32_t {
 
 auto create_opengl_owned_texture_backend(
   const mln_open_gl_owned_texture_descriptor& descriptor, mln::Size size,
-  std::size_t ring_depth, std::unique_ptr<TextureSessionBackend>& out_backend
+  std::size_t ring_depth, std::unique_ptr<TextureSessionBackend>& out_backend,
+  std::shared_ptr<opengl::EglSingleContext> single
 ) -> mln_status {
   auto backend = std::make_unique<OpenGLTextureSessionBackend>(
-    descriptor, size, ring_depth, MLN_GPU_SYNC_CPU_COMPLETE
+    descriptor, size, ring_depth, MLN_GPU_SYNC_CPU_COMPLETE, std::move(single)
   );
   const auto status = backend->initialize_sync();
   out_backend = std::move(backend);

@@ -443,6 +443,8 @@ final class mln_graphics_device_options extends Struct {
   external int fields;
   @Uint32()
   external int adapter_index;
+  @Bool()
+  external bool single_context;
 }
 
 final class mln_graphics_device_texture_descriptor extends Struct {
@@ -1735,6 +1737,7 @@ const MLN_GPU_SYNC_OPEN_GL_FENCE = 1;
 
 // mln_graphics_device_option_field
 const MLN_GRAPHICS_DEVICE_OPTION_ADAPTER_INDEX = 1;
+const MLN_GRAPHICS_DEVICE_OPTION_SINGLE_CONTEXT = 2;
 
 // mln_log_event
 const MLN_LOG_EVENT_GENERAL = 0;

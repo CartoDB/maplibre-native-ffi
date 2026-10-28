@@ -287,6 +287,7 @@ internal unsafe struct mln_graphics_device_options
     public uint size;
     public mln_graphics_device_option_field fields;
     public uint adapter_index;
+    public byte single_context;
 }
 
 internal unsafe struct mln_graphics_device_texture_descriptor
@@ -1440,6 +1441,7 @@ internal enum mln_gpu_sync_kind : uint
 internal enum mln_graphics_device_option_field : uint
 {
     MLN_GRAPHICS_DEVICE_OPTION_ADAPTER_INDEX = 1,
+    MLN_GRAPHICS_DEVICE_OPTION_SINGLE_CONTEXT = 2,
 }
 
 internal enum mln_log_event : uint

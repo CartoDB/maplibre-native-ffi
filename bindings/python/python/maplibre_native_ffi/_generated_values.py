@@ -1502,9 +1502,16 @@ class GraphicsDeviceOptions:
     default adapter.
     """
 
+    single_context: bool | None = None
+    """Whether the device's texture sessions take turns rendering in one EGL
+    context instead of each creating its own. Absent selects false.
+    """
+
     @classmethod
     def _from_native(cls, raw):
-        return cls(adapter_index=raw["adapter_index"])
+        return cls(
+            adapter_index=raw["adapter_index"], single_context=raw["single_context"]
+        )
 
 
 @dataclass(frozen=True, slots=True)

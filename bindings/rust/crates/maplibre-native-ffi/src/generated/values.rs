@@ -1219,6 +1219,9 @@ pub struct GraphicsDeviceOptions {
     /// own list of adapters, from zero. Without it, the backend picks its
     /// default adapter.
     pub adapter_index: Option<u32>,
+    /// Whether the device's texture sessions take turns rendering in one EGL
+    /// context instead of each creating its own. Absent selects false.
+    pub single_context: Option<bool>,
 }
 impl ToNative<sys::mln_graphics_device_options> for GraphicsDeviceOptions {
     fn to_native(&self, _arena: &mut InputArena) -> Result<sys::mln_graphics_device_options> {
@@ -1228,6 +1231,10 @@ impl ToNative<sys::mln_graphics_device_options> for GraphicsDeviceOptions {
         if let Some(item) = &self.adapter_index {
             raw.fields |= sys::MLN_GRAPHICS_DEVICE_OPTION_ADAPTER_INDEX;
             raw.adapter_index = *item;
+        }
+        if let Some(item) = &self.single_context {
+            raw.fields |= sys::MLN_GRAPHICS_DEVICE_OPTION_SINGLE_CONTEXT;
+            raw.single_context = *item;
         }
         Ok(raw)
     }

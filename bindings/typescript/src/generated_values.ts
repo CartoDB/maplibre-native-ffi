@@ -643,6 +643,11 @@ export interface GraphicsDeviceOptions {
    * adapter.
    */
   adapterIndex?: number;
+  /**
+   * Whether the device's texture sessions take turns rendering in one EGL
+   * context instead of each creating its own. Absent selects false.
+   */
+  singleContext?: boolean;
 }
 
 /**

@@ -23,6 +23,8 @@ typedef enum MLN_BINDING(
 ) mln_graphics_device_option_field : uint32_t {
   /** adapter_index is set. */
   MLN_GRAPHICS_DEVICE_OPTION_ADAPTER_INDEX = 1U << 0U,
+  /** single_context is set. */
+  MLN_GRAPHICS_DEVICE_OPTION_SINGLE_CONTEXT = 1U << 1U,
 } mln_graphics_device_option_field;
 
 /** A set of mln_graphics_device_option_field bits. */
@@ -48,6 +50,17 @@ typedef struct mln_graphics_device_options {
    */
   uint32_t adapter_index
     MLN_BINDING("mask=fields;bit=MLN_GRAPHICS_DEVICE_OPTION_ADAPTER_INDEX");
+  /**
+   * Whether the device's texture sessions take turns rendering in one EGL
+   * context instead of each creating its own. Absent selects false.
+   *
+   * A context per session costs memory, most under a software renderer such
+   * as llvmpipe. Sessions that take turns never render at the same time, so a
+   * host that renders on several threads at once creates a device for each.
+   * Other backends ignore this.
+   */
+  bool single_context
+    MLN_BINDING("mask=fields;bit=MLN_GRAPHICS_DEVICE_OPTION_SINGLE_CONTEXT");
 } mln_graphics_device_options;
 
 /** Attachment options for a graphics device texture target. */
@@ -67,7 +80,8 @@ typedef struct mln_graphics_device_texture_descriptor {
  * creating graphics objects of its own: a Metal device, a Vulkan instance,
  * device, and graphics queue, an EGL display and config, or a hidden window
  * for WGL. Any number of texture sessions can share one device. A Vulkan
- * device synchronizes its queue among those sessions.
+ * device synchronizes its queue among those sessions, and an EGL device
+ * created with single_context has them take turns in one context.
  *
  * The device is not tied to a thread, so any thread may use or release it.
  *
@@ -78,7 +92,8 @@ typedef struct mln_graphics_device_texture_descriptor {
  * - MLN_STATUS_UNSUPPORTED when this build's backend cannot create a device:
  *   WebGPU, and OpenGL on WebGL.
  * - MLN_STATUS_NATIVE_ERROR when the graphics API is unavailable, has no
- *   adapter at adapter_index, or fails to create the device.
+ *   adapter at adapter_index, or fails to create the device or its single
+ *   context.
  */
 MLN_API mln_status mln_graphics_device_create(
   const mln_graphics_device_options* options MLN_BINDING("nullable=true"),

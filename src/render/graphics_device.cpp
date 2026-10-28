@@ -23,7 +23,10 @@ auto effective_graphics_device_options(
   mln_graphics_device_options& out_options
 ) -> mln_status {
   out_options = mln_graphics_device_options{
-    .size = sizeof(mln_graphics_device_options), .fields = 0, .adapter_index = 0
+    .size = sizeof(mln_graphics_device_options),
+    .fields = 0,
+    .adapter_index = 0,
+    .single_context = false,
   };
   if (options == nullptr) {
     return MLN_STATUS_OK;
@@ -32,7 +35,10 @@ auto effective_graphics_device_options(
     set_thread_error("mln_graphics_device_options.size is too small");
     return MLN_STATUS_INVALID_ARGUMENT;
   }
-  if ((options->fields & ~MLN_GRAPHICS_DEVICE_OPTION_ADAPTER_INDEX) != 0U) {
+  if (
+    (options->fields & ~(MLN_GRAPHICS_DEVICE_OPTION_ADAPTER_INDEX |
+                         MLN_GRAPHICS_DEVICE_OPTION_SINGLE_CONTEXT)) != 0U
+  ) {
     set_thread_error(
       "mln_graphics_device_options.fields contains unknown bits"
     );
@@ -40,6 +46,9 @@ auto effective_graphics_device_options(
   }
   out_options.fields = options->fields;
   out_options.adapter_index = options->adapter_index;
+  out_options.single_context =
+    (options->fields & MLN_GRAPHICS_DEVICE_OPTION_SINGLE_CONTEXT) != 0U &&
+    options->single_context;
   return MLN_STATUS_OK;
 }
 

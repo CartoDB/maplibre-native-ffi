@@ -2,7 +2,9 @@
 
 #if defined(MLN_FFI_OPENGL_PROVIDER_EGL)
 
+#include <memory>
 #include <stdexcept>
+#include <utility>
 
 #include <mln/platform/gl_functions.hpp>
 
@@ -10,10 +12,37 @@
 
 namespace mln::core::opengl {
 
+EglSingleContext::EglSingleContext(EGLDisplay display, EGLContext context)
+    : display_(display), context_(context) {}
+
+// Nothing makes the context current but its sessions, and each holds this, so
+// the last one has released it by now.
+EglSingleContext::~EglSingleContext() { eglDestroyContext(display_, context_); }
+
+auto EglSingleContext::context() const -> EGLContext { return context_; }
+
+auto EglSingleContext::next_user() -> std::uint64_t {
+  return users_.fetch_add(1, std::memory_order_relaxed) + 1;
+}
+
+auto EglSingleContext::lock(std::uint64_t user) -> bool {
+  mutex_.lock();
+  const auto lost = last_user_ != user;
+  last_user_ = user;
+  return lost;
+}
+
+void EglSingleContext::unlock() { mutex_.unlock(); }
+
 EglSharedContext::EglSharedContext(
-  mln_egl_context_descriptor descriptor, mln_open_gl_context_ownership ownership
+  mln_egl_context_descriptor descriptor,
+  mln_open_gl_context_ownership ownership,
+  std::shared_ptr<EglSingleContext> single
 )
-    : descriptor_(descriptor), ownership_(ownership) {}
+    : descriptor_(descriptor),
+      ownership_(ownership),
+      single_(std::move(single)),
+      single_user_(single_ != nullptr ? single_->next_user() : 0) {}
 
 EglSharedContext::~EglSharedContext() { destroy(); }
 
@@ -29,6 +58,12 @@ void EglSharedContext::activate_pbuffer() {
 // A dedicated context stays current between renders, so the thread is left
 // exactly as this session wants to find it next time.
 void EglSharedContext::deactivate() {
+  // Releasing the context flushes it, and hands the turn to the next session.
+  if (single_ != nullptr) {
+    release_current_context();
+    release_turn();
+    return;
+  }
   if (dedicated()) {
     // Releasing a shared context flushes it, but a dedicated one stays
     // current, so its last commands would wait for its next render. ANGLE on
@@ -47,6 +82,49 @@ void EglSharedContext::deactivate() {
 
 auto EglSharedContext::dedicated() const -> bool {
   return ownership_ == MLN_OPEN_GL_CONTEXT_OWNERSHIP_DEDICATED;
+}
+
+auto EglSharedContext::take_state_lost() -> bool {
+  const auto lost = state_lost_;
+  state_lost_ = false;
+  return lost;
+}
+
+void EglSharedContext::release_turn() {
+  if (holds_turn_) {
+    holds_turn_ = false;
+    single_->unlock();
+  }
+}
+
+// Another session may hold the single context on its own core worker, so this
+// waits for its turn, then makes the context current with this session's
+// pbuffer until deactivate() hands it back.
+void EglSharedContext::activate_single(
+  EGLSurface draw_surface, EGLSurface read_surface
+) {
+  if (!holds_turn_) {
+    state_lost_ = single_->lock(single_user_) || state_lost_;
+    holds_turn_ = true;
+  }
+  try {
+    const auto api = requested_api();
+    if (eglBindAPI(api) == EGL_FALSE) {
+      throw std::runtime_error("Binding EGL OpenGL API failed");
+    }
+    active_api_ = api;
+    if (
+      eglMakeCurrent(
+        display(), draw_surface, read_surface, single_->context()
+      ) == EGL_FALSE
+    ) {
+      throw std::runtime_error("Switching OpenGL EGL context failed");
+    }
+  } catch (...) {
+    release_current_context();
+    release_turn();
+    throw;
+  }
 }
 
 // The API to bind before creating a context and making it current. A dedicated
@@ -108,6 +186,10 @@ auto EglSharedContext::ensure_pbuffer_surface() -> EGLSurface {
 void EglSharedContext::activate(
   EGLSurface draw_surface, EGLSurface read_surface
 ) {
+  if (single_ != nullptr) {
+    activate_single(draw_surface, read_surface);
+    return;
+  }
   if (dedicated()) {
     // Another session or the host may have made its own context current on
     // this thread since the last render, so ask EGL instead of remembering.
@@ -224,6 +306,12 @@ void EglSharedContext::restore_previous_context() {
 }
 
 void EglSharedContext::destroy() {
+  // A session of a single-context device creates no context, so teardown hands
+  // back its turn and destroys only its pbuffer.
+  if (holds_turn_) {
+    release_current_context();
+    release_turn();
+  }
   // Teardown runs GL deletes with a dedicated context current, and EGL only
   // retires a context once nothing holds it. Release it, but leave alone a
   // context that another session or the host made current since.

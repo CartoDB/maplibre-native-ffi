@@ -17,4 +17,10 @@ public sealed record GraphicsDeviceOptions
     /// default adapter.
     /// </summary>
     public uint? AdapterIndex { get; init; }
+
+    /// <summary>
+    /// Whether the device's texture sessions take turns rendering in one EGL
+    /// context instead of each creating its own. Absent selects false.
+    /// </summary>
+    public bool? SingleContext { get; init; }
 }
