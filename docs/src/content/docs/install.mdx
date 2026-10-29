@@ -562,6 +562,29 @@ await loadModule(new URL("/maplibre_native_ffi.mjs", location.href));
 const runtime = await RuntimeHandle.create();
 ```
 
+In React Native 0.88, use the New Architecture and the bundled Hermes engine.
+Install the facade alone; autolinking defaults to Metal on iOS and OpenGL on
+Android:
+
+```bash frame="terminal"
+npm install @maplibre/native-ffi
+```
+
+On iOS, use the app's dependency manager: run `pod install` for CocoaPods, or
+React Native's `setup-apple-spm.js` for SwiftPM. To migrate the standard React
+Native template to SwiftPM:
+
+```bash frame="terminal"
+cd ios
+node ../node_modules/react-native/scripts/setup-apple-spm.js add --deintegrate
+```
+
+To select Vulkan on Android, set `maplibre.android.backend=vulkan` in
+`android/gradle.properties`.
+
+Import from `@maplibre/native-ffi` as on Node. The binding creates no native
+view; the host supplies the graphics objects and surface for presentation.
+
 npm has no snapshot channel. To try `main`, pack the packages for your preset in
 a checkout of this repository, then install the tarballs:
 
