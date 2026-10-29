@@ -121,7 +121,7 @@ class SwiftEmitterTests(unittest.TestCase):
         self.assertIn(
             "public init(`initialExtent`: LogicalExtent, `mapMode`: MapMode = "
             ".init(rawValue: 0), `fastPforEnabled`: Bool = false, `eventMask`: "
-            "RuntimeEventFlag? = nil)",
+            "RuntimeEventFlag? = nil, `tileCacheSize`: UInt32? = nil)",
             values,
         )
         self.assertNotIn("static var `default`", values)

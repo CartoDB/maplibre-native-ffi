@@ -926,6 +926,11 @@ export interface MapOptions {
    * Map-originated event types this map queues.
    */
   eventMask?: RuntimeEventFlag;
+  /**
+   * Tiles each source keeps after they leave the view, so the map can show them
+   * again without loading them.
+   */
+  tileCacheSize?: number;
 }
 
 /**

@@ -895,7 +895,7 @@ internal fun NativeCall.writeResourceRequestCancelHandler(
 ): Long = allocate(w(24, 40), 8).also { putResourceRequestCancelHandler(it, value) }
 
 internal fun NativeArena.putMapOptions(target: Long, value: MapOptions) {
-  writeU32(target, 40.toUInt())
+  writeU32(target, 48.toUInt())
   var fields = 0u
   putLogicalExtent(target + 8, value.initialExtent)
   writeU32(target + 24, value.mapMode.rawValue)
@@ -904,11 +904,15 @@ internal fun NativeArena.putMapOptions(target: Long, value: MapOptions) {
     fields = fields or 1u
     writeU64(target + 32, it.rawValue)
   }
+  value.tileCacheSize?.let {
+    fields = fields or 2u
+    writeU32(target + 40, it)
+  }
   writeU32(target + 4, fields)
 }
 
 internal fun NativeArena.writeMapOptions(value: MapOptions): Long =
-  allocate(40, 8).also { putMapOptions(it, value) }
+  allocate(48, 8).also { putMapOptions(it, value) }
 
 internal fun NativeArena.putOfflineRegionDefinition(target: Long, value: OfflineRegionDefinition) {
   writeU32(target, w(72, 80).toUInt())

@@ -4898,6 +4898,7 @@ final class MapOptions extends _Value {
     this.mapMode = const MapMode.fromRawValue(0),
     this.fastPforEnabled = false,
     this.eventMask,
+    this.tileCacheSize,
   });
 
   /// Initial logical extent. Required. Width and height must be nonzero, and
@@ -4913,17 +4914,23 @@ final class MapOptions extends _Value {
   /// Map-originated event types this map queues.
   final RuntimeEventFlag? eventMask;
 
+  /// Tiles each source keeps after they leave the view, so the map can show
+  /// them again without loading them.
+  final int? tileCacheSize;
+
   /// A copy of this value with the given members replaced.
   MapOptions copyWith({
     LogicalExtent? initialExtent,
     MapMode? mapMode,
     bool? fastPforEnabled,
     RuntimeEventFlag? eventMask,
+    int? tileCacheSize,
   }) => MapOptions(
     initialExtent: initialExtent ?? this.initialExtent,
     mapMode: mapMode ?? this.mapMode,
     fastPforEnabled: fastPforEnabled ?? this.fastPforEnabled,
     eventMask: eventMask ?? this.eventMask,
+    tileCacheSize: tileCacheSize ?? this.tileCacheSize,
   );
 
   @override
@@ -4932,6 +4939,7 @@ final class MapOptions extends _Value {
     mapMode,
     fastPforEnabled,
     eventMask,
+    tileCacheSize,
   ];
   @override
   String toString() => _describe('MapOptions', const [
@@ -4939,6 +4947,7 @@ final class MapOptions extends _Value {
     'mapMode',
     'fastPforEnabled',
     'eventMask',
+    'tileCacheSize',
   ]);
 }
 

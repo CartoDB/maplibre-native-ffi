@@ -132,7 +132,8 @@ class RustEmitterTests(unittest.TestCase):
         self.assertIn(
             "pub fn new(initial_extent: LogicalExtent) -> Self { Self { "
             "initial_extent, map_mode: Default::default(), "
-            "fast_pfor_enabled: Default::default(), event_mask: None } }",
+            "fast_pfor_enabled: Default::default(), event_mask: None, "
+            "tile_cache_size: None } }",
             values,
         )
         self.assertIn(

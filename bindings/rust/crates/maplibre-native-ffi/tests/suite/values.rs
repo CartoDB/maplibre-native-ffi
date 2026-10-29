@@ -163,6 +163,7 @@ fn a_record_built_from_its_required_members_zeroes_the_others() {
     assert_eq!(options.map_mode, MapMode::default());
     assert!(!options.fast_pfor_enabled);
     assert_eq!(options.event_mask, None);
+    assert_eq!(options.tile_cache_size, None);
 }
 
 // An enum without a zero member has no default rather than an unknown 0, and

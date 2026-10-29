@@ -145,6 +145,7 @@ pub const MLN_MAP_MODE_STATIC: mln_map_mode = 1;
 pub const MLN_MAP_MODE_TILE: mln_map_mode = 2;
 pub type mln_map_option_field = u32;
 pub const MLN_MAP_OPTION_EVENT_MASK: mln_map_option_field = 1;
+pub const MLN_MAP_OPTION_TILE_CACHE_SIZE: mln_map_option_field = 2;
 pub type mln_map_tile_option_field = u32;
 pub const MLN_MAP_TILE_OPTION_PREFETCH_ZOOM_DELTA: mln_map_tile_option_field = 1;
 pub const MLN_MAP_TILE_OPTION_LOD_MIN_RADIUS: mln_map_tile_option_field = 2;
@@ -813,6 +814,7 @@ pub struct mln_map_options {
     pub map_mode: mln_map_mode,
     pub fast_pfor_enabled: bool,
     pub event_mask: mln_runtime_event_flags,
+    pub tile_cache_size: u32,
 }
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]

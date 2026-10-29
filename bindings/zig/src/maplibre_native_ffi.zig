@@ -3148,6 +3148,9 @@ pub const MapOptions = struct {
     fast_pfor_enabled: bool = false,
     /// Map-originated event types this map queues.
     event_mask: ?RuntimeEventFlag = null,
+    /// Tiles each source keeps after they leave the view, so the map can show
+    /// them again without loading them.
+    tile_cache_size: ?u32 = null,
     pub fn toNative(self: MapOptions) c.mln_map_options {
         var raw = std.mem.zeroes(c.mln_map_options);
         raw.fields = 0;
@@ -3156,6 +3159,7 @@ pub const MapOptions = struct {
         raw.map_mode = self.map_mode.toNative();
         raw.fast_pfor_enabled = self.fast_pfor_enabled;
         marshal.present(&raw.fields, c.MLN_MAP_OPTION_EVENT_MASK, &raw.event_mask, self.event_mask);
+        marshal.present(&raw.fields, c.MLN_MAP_OPTION_TILE_CACHE_SIZE, &raw.tile_cache_size, self.tile_cache_size);
         return raw;
     }
     pub fn fromNative(raw: c.mln_map_options) MapOptions {
@@ -3164,6 +3168,7 @@ pub const MapOptions = struct {
             .map_mode = MapMode.fromNative(raw.map_mode),
             .fast_pfor_enabled = raw.fast_pfor_enabled,
             .event_mask = if (raw.fields & c.MLN_MAP_OPTION_EVENT_MASK != 0) RuntimeEventFlag.fromNative(raw.event_mask) else null,
+            .tile_cache_size = if (raw.fields & c.MLN_MAP_OPTION_TILE_CACHE_SIZE != 0) raw.tile_cache_size else null,
         };
     }
 };

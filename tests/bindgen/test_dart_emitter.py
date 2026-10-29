@@ -146,7 +146,8 @@ class DartEmitterTests(unittest.TestCase):
         values = dart.lower(real_api()).files[dart.VALUES]
         self.assertIn(
             "const MapOptions({required this.initialExtent, this.mapMode = const "
-            "MapMode.fromRawValue(0), this.fastPforEnabled = false, this.eventMask});",
+            "MapMode.fromRawValue(0), this.fastPforEnabled = false, this.eventMask, "
+            "this.tileCacheSize});",
             values,
         )
         # A list member defaults to empty unless it is required.
