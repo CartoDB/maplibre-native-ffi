@@ -172,11 +172,16 @@ function(mln_ffi_configure_renderer target)
       SYSTEM
       PRIVATE ${PROJECT_SOURCE_DIR}/third_party/khronos/include)
 
+    if(MSVC)
+      set(force_include /FI)
+    else()
+      set(force_include -include)
+    endif()
     set_source_files_properties(
       ${MLN_FFI_SOURCE_DIR}/platform/windows/src/headless_backend_wgl.cpp
       PROPERTIES
         COMPILE_OPTIONS
-        "/FI${PROJECT_SOURCE_DIR}/third_party/khronos/include/GLES3/gl3.h;/FI${PROJECT_SOURCE_DIR}/third_party/khronos/include/GL/wglext.h")
+        "${force_include}${PROJECT_SOURCE_DIR}/third_party/khronos/include/GLES3/gl3.h;${force_include}${PROJECT_SOURCE_DIR}/third_party/khronos/include/GL/wglext.h")
     target_link_libraries(${target} PRIVATE MLN_FFI::RenderDependencies)
   elseif(MLN_FFI_OPENGL_CONTEXT_PROVIDER STREQUAL "webgl")
     target_compile_definitions(

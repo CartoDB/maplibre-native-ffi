@@ -104,6 +104,26 @@ runs:
           sudo softwareupdate --install-rosetta --agree-to-license
         fi
 
+    - name: Install MSYS2 MinGW toolchain
+      if: ${{ runner.os == 'Windows' && inputs.mise-env == 'msys2' }}
+      id: msys2
+      uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e # v2.33.0
+      with:
+        msystem: MINGW64
+        path-type: inherit
+        update: true
+        install: mingw-w64-x86_64-clang mingw-w64-x86_64-llvm
+
+    - name: Select MSYS2 prefix
+      if: ${{ runner.os == 'Windows' && inputs.mise-env == 'msys2' }}
+      shell: pwsh
+      env:
+        MSYS2_LOCATION: ${{ steps.msys2.outputs.msys2-location }}
+      run: |
+        $prefix = (Join-Path $env:MSYS2_LOCATION "mingw64") -replace '\\', '/'
+        "MLN_FFI_MSYS2_ROOT=$prefix" >> $env:GITHUB_ENV
+        "MISE_ENV=msys2" >> $env:GITHUB_ENV
+
     # Each job asks for the SDK its target builds with, and every other job installs
     # none. No Windows target cross-compiles. Android reuses the SDK the runner image
     # already points ANDROID_HOME at. Repository build tasks install missing Android

@@ -5,6 +5,10 @@ include(mln_ffi_platform)
 include(mln_ffi_render_backend)
 
 function(mln_ffi_configure_shared_exports target)
+  if(MINGW)
+    set_target_properties(${target} PROPERTIES PREFIX "")
+  endif()
+
   set(export_dir "${CMAKE_CURRENT_BINARY_DIR}/exports")
   file(MAKE_DIRECTORY "${export_dir}")
 

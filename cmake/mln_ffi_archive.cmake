@@ -4,7 +4,7 @@
 # mln_ffi_platform_dependencies; nothing here knows which compiler produced the
 # inputs:
 #
-#   MLN_FFI_ARCHIVE_FORMAT          coff, apple, elf, or none
+#   MLN_FFI_ARCHIVE_FORMAT          coff, mingw, apple, elf, wasm, or none
 #   MLN_FFI_ARCHIVE_TOOL            archiver for the apple format
 #   MLN_FFI_ARCHIVE_BUNDLED_RUNTIME archives to merge in on demand, such as a
 #                                   C++ runtime the consumer should not supply
@@ -232,7 +232,7 @@ function(mln_ffi_configure_complete_static_archive target)
     mln_ffi_elf_archive_commands(
       MLN_FFI_ARCHIVE_COMMANDS "${MLN_FFI_COMPLETE_STATIC_OBJECT}"
       "${MLN_FFI_COMPLETE_STATIC_ARCHIVE}" ${MLN_FFI_INPUT_ARCHIVES})
-  elseif(MLN_FFI_ARCHIVE_FORMAT STREQUAL "wasm")
+  elseif(MLN_FFI_ARCHIVE_FORMAT MATCHES "^(mingw|wasm)$")
     set(MLN_FFI_ARCHIVE_COMMANDS COMMAND "${CMAKE_AR}" qcL
         "${MLN_FFI_COMPLETE_STATIC_ARCHIVE}" ${MLN_FFI_INPUT_ARCHIVES})
   else()

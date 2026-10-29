@@ -75,7 +75,7 @@ link = "https://github.com/swiftlang/swift/issues/78349"
 [[entry]]
 bindings = ["c"]
 platforms = ["windows-mingw"]
-archs = ["x64", "arm64"]
+archs = ["arm64"]
 backends = ["vulkan", "opengl"]
 status = "path-known"
 reason = "A DLL built with Zig's `windows-gnu` target passes the C suites under Wine, after the build changes that the issue lists. A static archive has to hide its bundled C++ runtime without `ld -r`, which lld lacks for COFF, by renaming that runtime's symbols with `llvm-objcopy`."

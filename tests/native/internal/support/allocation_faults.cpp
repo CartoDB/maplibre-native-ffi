@@ -44,12 +44,14 @@ auto operator new[](std::size_t size, const std::nothrow_t& tag) noexcept
 }
 void operator delete(void* allocation) noexcept { std::free(allocation); }
 void operator delete[](void* allocation) noexcept { std::free(allocation); }
+#if defined(__cpp_sized_deallocation)
 void operator delete(void* allocation, std::size_t) noexcept {
   std::free(allocation);
 }
 void operator delete[](void* allocation, std::size_t) noexcept {
   std::free(allocation);
 }
+#endif
 void operator delete(void* allocation, const std::nothrow_t&) noexcept {
   ::operator delete(allocation);
 }

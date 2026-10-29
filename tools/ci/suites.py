@@ -362,7 +362,10 @@ def target_suites(target: Target) -> list[Suite]:
         wrapper, shell, timeout = None, None, None
         # Lavapipe presents Win32 surfaces through GDI, which needs the VM's
         # interactive desktop. WGL and the binding suites run in service session 0.
-        if preset == "windows-x64-vulkan" and command[2:] == ["test", preset]:
+        if preset in {"windows-x64-vulkan", "mingw-x64-vulkan"} and command[2:] == [
+            "test",
+            preset,
+        ]:
             wrapper, shell, timeout = "windows-console", "pwsh", 15
         suite = Suite(
             id=step_id or suite_id(command[2]),

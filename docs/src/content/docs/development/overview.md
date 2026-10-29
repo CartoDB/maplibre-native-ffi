@@ -70,6 +70,28 @@ the first configure downloads into `build/sysroot` with Docker or Podman.
 root of Debian or Alpine packages that it lays out in `build/roots`. Ubuntu and
 Fedora package the emulator as `qemu-user`.
 
+## MSYS2
+
+On Windows x64, install [MSYS2](https://www.msys2.org/) and run this in its
+MINGW64 shell:
+
+```bash
+pacman -S --needed mingw-w64-x86_64-clang mingw-w64-x86_64-llvm
+```
+
+Then, from PowerShell, build and test the C library with:
+
+```powershell
+mise -E msys2 run test mingw-x64-wgl
+mise -E msys2 run test mingw-x64-vulkan
+```
+
+Set `MLN_FFI_MSYS2_ROOT` if the MINGW64 prefix is somewhere other than
+`C:/msys64/mingw64`. The Vulkan tests also need the Vulkan SDK from setup.
+Applications loading the DLL need the MINGW64 `bin` directory on `PATH` for its
+C++ runtime. The MSYS2 presets cover the C library; Kotlin/Native's older MinGW
+sysroot and C++ runtime are a separate compatibility requirement.
+
 ## Windows on Linux
 
 The Windows presets also cross-compile on a Linux host, with LLVM's `clang-cl`,
@@ -87,6 +109,17 @@ such as `files/bin/wine` in Steam's Proton, with a prefix under
 `build/wine-prefix`. An x64 host runs only the x64 presets. Wine implements WGL
 over the host's OpenGL and Vulkan over the host's Vulkan driver, so Windows CI
 remains the authority on Windows behavior.
+
+## Run selected CI units
+
+Manual CI runs accept a JSON array of units from `ci.units` in
+`.config/rubberstamp.yml`. For example, run the MSYS2 C suites on a branch:
+
+```sh
+gh workflow run CI --ref <branch> -f 'units=["mingw"]'
+```
+
+Leave `units` unset to run every unit. Hygiene runs with every selection.
 
 ## Debug on a CI runner
 

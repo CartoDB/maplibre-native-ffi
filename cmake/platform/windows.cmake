@@ -32,6 +32,12 @@ function(mln_ffi_configure_platform_dependencies target)
     "libuv-extra.txt")
 
   target_link_libraries(${target} INTERFACE zlibstatic uv_a ntdll ws2_32)
+  set(archive_format coff)
+  if(MINGW)
+    set(archive_format mingw)
+    # A C consumer of the static archive also needs the MSYS2 C++ runtime.
+    target_link_libraries(${target} INTERFACE stdc++ winpthread)
+  endif()
   set_target_properties(
     ${target}
     PROPERTIES
@@ -42,7 +48,7 @@ function(mln_ffi_configure_platform_dependencies target)
       MLN_FFI_SHARED_SUPPORTED
       TRUE
       MLN_FFI_ARCHIVE_FORMAT
-      coff
+      ${archive_format}
       MLN_FFI_STATIC_BASE_OUTPUT_NAME
       maplibre-native-c-static-base
       MLN_FFI_STATIC_ARCHIVES

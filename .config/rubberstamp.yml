@@ -340,6 +340,19 @@ ci:
               - src/render/opengl/wgl_*
               - third_party/maplibre-native
           then: apply
+    mingw:
+      covers: >-
+        Windows x64 with OpenGL (WGL) and Vulkan, built with Clang in MSYS2's
+        MINGW64 environment. Runs the C suites and verifies shared and static C
+        package consumers. Catches MinGW headers, libstdc++, GNU archive and
+        import library handling, and MSYS2 toolchain setup.
+      rules:
+        - if:
+            files:
+              - cmake/toolchains/msys2.cmake
+              - .config/mise.msys2.*
+              - third_party/maplibre-native
+          then: apply
     windows-arm64:
       covers: >-
         Windows ARM64 with OpenGL (WGL) and Vulkan, running Windows x64's suites

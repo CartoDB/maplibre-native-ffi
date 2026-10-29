@@ -13,7 +13,7 @@ function(mln_ffi_link_rust_platform target)
       CACHE
         PATH "Cargo target directory for the native platform support library")
   set(rust_manifest "${PROJECT_SOURCE_DIR}/src/platform/rust/Cargo.toml")
-  if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
+  if(MSVC)
     set(rust_library
         "${MLN_FFI_CARGO_TARGET_DIR}/${rust_target}/release/mln_ffi_platform.lib")
   else()
@@ -30,7 +30,7 @@ function(mln_ffi_link_rust_platform target)
   set(rust_cc "${CMAKE_C_COMPILER}")
   set(rust_cxx "${CMAKE_CXX_COMPILER}")
   set(rust_linker "${CMAKE_CXX_COMPILER}")
-  if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
+  if(MSVC)
     set(rust_linker "${CMAKE_LINKER}")
   endif()
   if(CMAKE_SYSTEM_NAME STREQUAL "Android")
@@ -70,7 +70,7 @@ function(mln_ffi_link_rust_platform target)
       "CARGO_TARGET_${rust_target_env}_LINKER=${rust_linker}"
       "CARGO_TARGET_${rust_target_env}_AR=${CMAKE_AR}"
       "CARGO_TARGET_DIR=${MLN_FFI_CARGO_TARGET_DIR}")
-  if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
+  if(MSVC)
     list(APPEND rust_environment
          "CARGO_TARGET_${rust_target_env}_RUSTFLAGS=-Ctarget-feature=+crt-static")
   endif()

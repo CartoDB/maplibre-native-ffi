@@ -8,6 +8,11 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      units:
+        description: 'CI units as a JSON array, e.g. ["mingw"]. Leave blank for all units.'
+        required: false
+        type: string
   pull_request:
     types:
       - opened
@@ -37,6 +42,7 @@ jobs:
       jobs: ${{ steps.matrix.outputs.jobs }}
     steps:
       - name: Plan coverage
+        if: github.event_name != 'workflow_dispatch' || inputs.units == ''
         id: plan
         uses: sargunv/rubberstamp/actions/plan@971af366b2649956a949eb48f2670cc66ba43988 # main
       - name: Check out repository
@@ -50,8 +56,8 @@ jobs:
         id: matrix
         shell: bash
         env:
-          ALL: ${{ steps.plan.outputs.all }}
-          UNITS: ${{ steps.plan.outputs.units }}
+          ALL: ${{ inputs.units != '' && 'false' || steps.plan.outputs.all }}
+          UNITS: ${{ inputs.units || steps.plan.outputs.units }}
         run: |
           python3 -m tools.ci.plan --all "$ALL" --units "$UNITS" |
             jq -r '"matrix=\(.matrix | tojson)", "jobs=\(.jobs | tojson)"' >> "$GITHUB_OUTPUT"

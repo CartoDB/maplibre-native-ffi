@@ -467,6 +467,27 @@
       }
     },
     {
+      "name": "_mingw-x64",
+      "hidden": true,
+      "inherits": "_single-config",
+      "toolchainFile": "${fileDir}/cmake/toolchains/msys2.cmake",
+      "cacheVariables": {
+        "MLN_FFI_TARGET_ARCHITECTURE": "x64",
+        "MLN_FFI_TARGET_PLATFORM": "windows-mingw-x64",
+        "MLN_FFI_ZIG_TARGET": "x86_64-windows-gnu",
+        "MLN_FFI_RUST_TARGET": "x86_64-pc-windows-gnu",
+        "MLN_FFI_DEFAULT_RENDER_BACKEND": "vulkan"
+      },
+      "vendor": {
+        "maplibre-native-ffi": {
+          "unit": "mingw",
+          "runner": "blacksmith-4vcpu-windows-2025",
+          "miseEnv": "msys2",
+          "softwareGpu": true
+        }
+      }
+    },
+    {
       "name": "_metal",
       "hidden": true,
       "cacheVariables": { "MLN_FFI_RENDER_BACKEND": "metal" }
@@ -794,6 +815,16 @@
       "name": "ohos-x64-vulkan",
       "displayName": "OHOS x64 Vulkan",
       "inherits": ["_ohos-x64", "_vulkan"]
+    },
+    {
+      "name": "mingw-x64-wgl",
+      "displayName": "MSYS2 MinGW x64 WGL",
+      "inherits": ["_mingw-x64", "_wgl"]
+    },
+    {
+      "name": "mingw-x64-vulkan",
+      "displayName": "MSYS2 MinGW x64 Vulkan",
+      "inherits": ["_mingw-x64", "_vulkan"]
     },
     {
       "name": "windows-x64-wgl",

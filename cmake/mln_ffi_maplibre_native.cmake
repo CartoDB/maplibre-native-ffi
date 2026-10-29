@@ -44,6 +44,11 @@ function(mln_ffi_add_maplibre_native)
     endforeach()
   endif()
 
+  if(MINGW AND TARGET fsst-lib)
+    # FSST uses __cpuidex on Windows, but MinGW's immintrin.h omits it.
+    target_compile_options(fsst-lib PRIVATE -include intrin.h)
+  endif()
+
   if(CMAKE_SYSTEM_NAME STREQUAL "OHOS")
     target_include_directories(
       mbgl-core

@@ -200,12 +200,15 @@ class PresetTest(unittest.TestCase):
             mise_env = (
                 target.platform if target.platform in ("emscripten", "ohos") else ""
             )
+            if target.platform == "windows-mingw":
+                mise_env = "msys2"
             # Only the Linux and Windows runners lack a GPU. The RISC-V and
             # LoongArch targets draw in software under QEMU, and run only the
             # Zig binding's suite.
             emulated = target.architecture in ("riscv64", "loongarch64")
             gpu = (
-                target.platform in ("linux-gnu", "linux-musl", "windows")
+                target.platform
+                in ("linux-gnu", "linux-musl", "windows", "windows-mingw")
                 and not emulated
             )
             packages = "cache" if emulated else zig.get(target.platform, "skip")
