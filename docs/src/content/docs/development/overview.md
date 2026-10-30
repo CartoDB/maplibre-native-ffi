@@ -70,6 +70,14 @@ the first configure downloads into `build/sysroot` with Docker or Podman.
 root of Debian or Alpine packages that it lays out in `build/roots`. Ubuntu and
 Fedora package the emulator as `qemu-user`.
 
+Suites that start child processes, including TypeScript, need registered
+emulators. Install and register the emulators CI uses before running them;
+Ubuntu 24.04's older QEMU corrupts Node's base64 decoding on LoongArch:
+
+```bash
+bash scripts/setup-qemu.sh
+```
+
 ## MSYS2
 
 On Windows x64, install [MSYS2](https://www.msys2.org/) and run this in its
