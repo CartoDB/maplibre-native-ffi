@@ -179,13 +179,6 @@ reason = "cgo builds with a MinGW Clang or GCC. Link the MinGW DLL and run the s
 link = "https://github.com/maplibre/maplibre-native-ffi/pull/1380"
 
 [[entry]]
-bindings = ["typescript"]
-platforms = ["freebsd"]
-status = "blocked"
-reason = "Node supports FreeBSD x64 as experimental but ships no official binaries. Bun and Deno publish no FreeBSD runtime either."
-link = "https://github.com/nodejs/node/blob/main/BUILDING.md#platform-list"
-
-[[entry]]
 bindings = [
   "dotnet",
   "dart",
