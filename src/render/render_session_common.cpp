@@ -2183,6 +2183,9 @@ auto render_session_render_update_on_driver(
         *backend, static_cast<float>(live->scale_factor), std::nullopt,
         live->map_object->runtime_state->glyph_cache
       );
+      if (!live->map_object->tile_cache_enabled) {
+        live->renderer->setTileCacheEnabled(false);
+      }
 #if defined(__ANDROID__) && defined(MLN_RENDER_BACKEND_OPENGL)
       // Surface and texture sessions share this construction. Android OpenGL
       // emulator hosts crash in the Goldfish translation layer when a later

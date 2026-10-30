@@ -549,6 +549,8 @@ final class mln_map_options extends Struct {
   external bool fast_pfor_enabled;
   @Uint64()
   external int event_mask;
+  @Bool()
+  external bool tile_cache_enabled;
 }
 
 final class mln_map_snapshot extends Struct {
@@ -1786,6 +1788,7 @@ const MLN_MAP_MODE_TILE = 2;
 
 // mln_map_option_field
 const MLN_MAP_OPTION_EVENT_MASK = 1;
+const MLN_MAP_OPTION_TILE_CACHE_ENABLED = 2;
 
 // mln_map_tile_option_field
 const MLN_MAP_TILE_OPTION_PREFETCH_ZOOM_DELTA = 1;

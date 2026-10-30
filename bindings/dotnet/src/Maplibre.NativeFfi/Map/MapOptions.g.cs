@@ -29,4 +29,10 @@ public sealed record MapOptions
     /// Map-originated event types this map queues.
     /// </summary>
     public RuntimeEventFlag? EventMask { get; init; }
+
+    /// <summary>
+    /// Whether each source keeps tiles that leave the view, so the map can show
+    /// them again without loading them. Absent selects true.
+    /// </summary>
+    public bool? TileCacheEnabled { get; init; }
 }
