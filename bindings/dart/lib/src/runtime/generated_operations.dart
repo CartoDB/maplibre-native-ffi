@@ -2021,14 +2021,6 @@ Pointer<raw.mln_map_options> _writeMapOptions(
     result.ref.fields |= raw.MLN_MAP_OPTION_EVENT_MASK;
     result.ref.event_mask = value.eventMask!.rawValue;
   }
-  if (value.tileCacheSize != null) {
-    result.ref.fields |= raw.MLN_MAP_OPTION_TILE_CACHE_SIZE;
-    result.ref.tile_cache_size = _nativeInteger(
-      value.tileCacheSize!,
-      0,
-      4294967295,
-    );
-  }
   return result;
 }
 

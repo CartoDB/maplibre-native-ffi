@@ -1,12 +1,10 @@
 #pragma once
 
 #include <atomic>
-#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <memory>
 #include <mutex>
-#include <optional>
 #include <string>
 #include <unordered_set>
 
@@ -49,8 +47,6 @@ struct MapObject {
   // Member order keeps the runtime alive until this lease releases.
   ControlLease runtime_cleanup_lease;
   mln_map_mode map_mode = MLN_MAP_MODE_CONTINUOUS;
-  // Applied to the renderer of each render session.
-  std::optional<std::size_t> tile_cache_size;
   // Width and height follow resize on the runtime worker; scale_factor is
   // fixed at creation, so map_scale_factor() may read it from any thread.
   mln_logical_extent logical_extent{256, 256, 1.0};

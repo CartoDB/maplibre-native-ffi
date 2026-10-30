@@ -1376,8 +1376,7 @@ auto validate_map_options(const mln_map_options* options) -> mln_status {
   }
 
   constexpr auto known_fields =
-    static_cast<uint32_t>(MLN_MAP_OPTION_EVENT_MASK) |
-    static_cast<uint32_t>(MLN_MAP_OPTION_TILE_CACHE_SIZE);
+    static_cast<uint32_t>(MLN_MAP_OPTION_EVENT_MASK);
   if ((options->fields & ~known_fields) != 0U) {
     mln::core::set_thread_error("mln_map_options.fields contains unknown bits");
     return MLN_STATUS_INVALID_ARGUMENT;
@@ -3489,9 +3488,6 @@ auto create_map_start(
   owned_map->runtime = runtime;
   owned_map->runtime_state = runtime_state;
   owned_map->map_mode = effective.map_mode;
-  if ((effective.fields & MLN_MAP_OPTION_TILE_CACHE_SIZE) != 0U) {
-    owned_map->tile_cache_size = effective.tile_cache_size;
-  }
   owned_map->logical_extent = effective.initial_extent;
   owned_map->event_state = std::make_shared<MapEventState>();
   owned_map->callback_sources = std::make_shared<CallbackSourceRegistry>();

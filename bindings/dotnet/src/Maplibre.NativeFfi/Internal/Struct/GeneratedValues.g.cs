@@ -840,11 +840,6 @@ internal static unsafe class GeneratedValues
             MLN_MAP_OPTION_EVENT_MASK,
             static present => (ulong)present
         );
-        native.fields |= Put(
-            value.TileCacheSize,
-            ref native.tile_cache_size,
-            MLN_MAP_OPTION_TILE_CACHE_SIZE
-        );
         return native;
     }
 

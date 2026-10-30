@@ -389,7 +389,6 @@ internal unsafe struct mln_map_options
     public mln_map_mode map_mode;
     public byte fast_pfor_enabled;
     public ulong event_mask;
-    public uint tile_cache_size;
 }
 
 internal unsafe struct mln_map_snapshot
@@ -1503,7 +1502,6 @@ internal enum mln_map_mode : uint
 internal enum mln_map_option_field : uint
 {
     MLN_MAP_OPTION_EVENT_MASK = 1,
-    MLN_MAP_OPTION_TILE_CACHE_SIZE = 2,
 }
 
 internal enum mln_map_tile_option_field : uint

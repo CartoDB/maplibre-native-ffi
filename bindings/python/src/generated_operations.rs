@@ -2177,10 +2177,6 @@ fn generated_input_mln_map_options<'py>(
         raw.event_mask = field.extract::<sys::mln_runtime_event_flags>()?;
         raw.fields |= sys::MLN_MAP_OPTION_EVENT_MASK;
     }
-    if let Some(field) = generated_present(value, "tile_cache_size")? {
-        raw.tile_cache_size = field.extract::<u32>()?;
-        raw.fields |= sys::MLN_MAP_OPTION_TILE_CACHE_SIZE;
-    }
     Ok(raw)
 }
 

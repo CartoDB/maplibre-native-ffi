@@ -4379,17 +4379,6 @@ bool mln_ts_write_map_options(
     }
     out->fields |= MLN_MAP_OPTION_EVENT_MASK;
   }
-  if (!mln_ts_member(call, value, "tileCacheSize", &member)) return false;
-  mln_ts_path(child, sizeof child, path, "tileCacheSize");
-  if (!mln_ts_is_absent(call, member)) {
-    {
-      int64_t number = 0;
-      if (!mln_ts_read_int(call, member, 0LL, 4294967295LL, &number, child))
-        return false;
-      out->tile_cache_size = (uint32_t)number;
-    }
-    out->fields |= MLN_MAP_OPTION_TILE_CACHE_SIZE;
-  }
   return true;
 }
 

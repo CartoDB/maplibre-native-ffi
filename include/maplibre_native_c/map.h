@@ -198,7 +198,6 @@ typedef struct mln_logical_extent {
 /** Field mask values for mln_map_options. */
 typedef enum MLN_BINDING("kind=bitmask") mln_map_option_field : uint32_t {
   MLN_MAP_OPTION_EVENT_MASK = 1U << 0U,
-  MLN_MAP_OPTION_TILE_CACHE_SIZE = 1U << 1U,
 } mln_map_option_field;
 
 /** A set of mln_map_option_field bits. */
@@ -241,17 +240,6 @@ typedef struct mln_map_options {
    */
   mln_runtime_event_flags event_mask
     MLN_BINDING("mask=fields;bit=MLN_MAP_OPTION_EVENT_MASK");
-  /**
-   * Tiles each source keeps after they leave the view, so the map can show
-   * them again without loading them.
-   *
-   * Absent selects MapLibre's default, which scales with the map's extent and
-   * zoom range. Zero keeps none. A map that renders unrelated views, as a tile
-   * server's does, can keep a few to use less memory. The size is fixed for
-   * the lifetime of the map and applies to each render session attached to it.
-   */
-  uint32_t tile_cache_size
-    MLN_BINDING("mask=fields;bit=MLN_MAP_OPTION_TILE_CACHE_SIZE");
 } mln_map_options;
 
 /**
