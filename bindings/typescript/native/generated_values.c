@@ -4379,6 +4379,16 @@ bool mln_ts_write_map_options(
     }
     out->fields |= MLN_MAP_OPTION_EVENT_MASK;
   }
+  if (!mln_ts_member(call, value, "tileCacheEnabled", &member)) return false;
+  mln_ts_path(child, sizeof child, path, "tileCacheEnabled");
+  if (!mln_ts_is_absent(call, member)) {
+    {
+      bool flag = false;
+      if (!mln_ts_read_bool(call, member, &flag, child)) return false;
+      out->tile_cache_enabled = flag;
+    }
+    out->fields |= MLN_MAP_OPTION_TILE_CACHE_ENABLED;
+  }
   return true;
 }
 

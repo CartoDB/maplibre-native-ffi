@@ -2021,6 +2021,10 @@ Pointer<raw.mln_map_options> _writeMapOptions(
     result.ref.fields |= raw.MLN_MAP_OPTION_EVENT_MASK;
     result.ref.event_mask = value.eventMask!.rawValue;
   }
+  if (value.tileCacheEnabled != null) {
+    result.ref.fields |= raw.MLN_MAP_OPTION_TILE_CACHE_ENABLED;
+    result.ref.tile_cache_enabled = value.tileCacheEnabled!;
+  }
   return result;
 }
 

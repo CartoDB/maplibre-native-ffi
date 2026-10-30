@@ -3372,6 +3372,11 @@ public data class MapOptions(
   public val fastPforEnabled: Boolean = false,
   /** Map-originated event types this map queues. */
   public val eventMask: RuntimeEventFlag? = null,
+  /**
+   * Whether each source keeps tiles that leave the view, so the map can show them again without
+   * loading them. Absent selects true.
+   */
+  public val tileCacheEnabled: Boolean? = null,
 )
 
 /**

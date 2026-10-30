@@ -1805,6 +1805,9 @@ pub struct MapOptions {
     pub fast_pfor_enabled: bool,
     /// Map-originated event types this map queues.
     pub event_mask: Option<RuntimeEventFlag>,
+    /// Whether each source keeps tiles that leave the view, so the map can show
+    /// them again without loading them. Absent selects true.
+    pub tile_cache_enabled: Option<bool>,
 }
 impl MapOptions {
     pub fn new(initial_extent: LogicalExtent) -> Self {
@@ -1813,6 +1816,7 @@ impl MapOptions {
             map_mode: Default::default(),
             fast_pfor_enabled: Default::default(),
             event_mask: None,
+            tile_cache_enabled: None,
         }
     }
 }
@@ -1827,6 +1831,10 @@ impl ToNative<sys::mln_map_options> for MapOptions {
         if let Some(item) = &self.event_mask {
             raw.fields |= sys::MLN_MAP_OPTION_EVENT_MASK;
             raw.event_mask = to_native(&*item, arena)?;
+        }
+        if let Some(item) = &self.tile_cache_enabled {
+            raw.fields |= sys::MLN_MAP_OPTION_TILE_CACHE_ENABLED;
+            raw.tile_cache_enabled = *item;
         }
         Ok(raw)
     }

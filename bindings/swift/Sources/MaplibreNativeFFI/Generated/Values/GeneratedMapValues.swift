@@ -978,16 +978,21 @@ public struct MapOptions: Equatable, Hashable, Sendable {
   public var fastPforEnabled: Bool
   /// Map-originated event types this map queues.
   public var eventMask: RuntimeEventFlag?
+  /// Whether each source keeps tiles that leave the view, so the map can show
+  /// them again without loading them. Absent selects true.
+  public var tileCacheEnabled: Bool?
   public init(
     initialExtent: LogicalExtent,
     mapMode: MapMode = .init(rawValue: 0),
     fastPforEnabled: Bool = false,
-    eventMask: RuntimeEventFlag? = nil
+    eventMask: RuntimeEventFlag? = nil,
+    tileCacheEnabled: Bool? = nil
   ) {
     self.initialExtent = initialExtent
     self.mapMode = mapMode
     self.fastPforEnabled = fastPforEnabled
     self.eventMask = eventMask
+    self.tileCacheEnabled = tileCacheEnabled
   }
 
   init(raw: mln_map_options) {
@@ -996,6 +1001,8 @@ public struct MapOptions: Equatable, Hashable, Sendable {
     fastPforEnabled = raw.fast_pfor_enabled
     eventMask = raw.fields & MLN_MAP_OPTION_EVENT_MASK
       .rawValue != 0 ? RuntimeEventFlag(rawValue: raw.event_mask) : nil
+    tileCacheEnabled = raw.fields & MLN_MAP_OPTION_TILE_CACHE_ENABLED
+      .rawValue != 0 ? raw.tile_cache_enabled : nil
   }
 
   func nativeValue() -> mln_map_options {
@@ -1008,6 +1015,10 @@ public struct MapOptions: Equatable, Hashable, Sendable {
     if let item = eventMask {
       raw.fields |= MLN_MAP_OPTION_EVENT_MASK.rawValue; raw.event_mask = item
         .rawValue
+    }
+    if let item = tileCacheEnabled {
+      raw.fields |= MLN_MAP_OPTION_TILE_CACHE_ENABLED.rawValue; raw
+        .tile_cache_enabled = item
     }
     return raw
   }

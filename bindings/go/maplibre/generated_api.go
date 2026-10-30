@@ -2651,6 +2651,9 @@ type MapOptions struct {
 	FastPforEnabled bool
 	// Map-originated event types this map queues.
 	EventMask *RuntimeEventFlag
+	// Whether each source keeps tiles that leave the view, so the map can show them
+	// again without loading them. Absent selects true.
+	TileCacheEnabled *bool
 }
 
 func nativeMapOptions(input MapOptions, arena *bindingArena) C.mln_map_options {
@@ -2661,6 +2664,7 @@ func nativeMapOptions(input MapOptions, arena *bindingArena) C.mln_map_options {
 	raw.map_mode = C.mln_map_mode(input.MapMode)
 	raw.fast_pfor_enabled = C.bool(input.FastPforEnabled)
 	bindingMasked(&raw.fields, C.MLN_MAP_OPTION_EVENT_MASK, &raw.event_mask, input.EventMask, arena, bindingNumber[RuntimeEventFlag, C.mln_runtime_event_flags])
+	bindingMasked(&raw.fields, C.MLN_MAP_OPTION_TILE_CACHE_ENABLED, &raw.tile_cache_enabled, input.TileCacheEnabled, arena, bindingBool[bool, C.bool])
 	return raw
 }
 

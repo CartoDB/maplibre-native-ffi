@@ -1741,6 +1741,11 @@ class MapOptions:
     event_mask: RuntimeEventFlag | None = None
     """Map-originated event types this map queues."""
 
+    tile_cache_enabled: bool | None = None
+    """Whether each source keeps tiles that leave the view, so the map can show
+    them again without loading them. Absent selects true.
+    """
+
     @classmethod
     def _from_native(cls, raw):
         return cls(
@@ -1748,6 +1753,7 @@ class MapOptions:
             map_mode=MapMode(raw["map_mode"]),
             fast_pfor_enabled=raw["fast_pfor_enabled"],
             event_mask=_maybe(RuntimeEventFlag, raw["event_mask"]),
+            tile_cache_enabled=raw["tile_cache_enabled"],
         )
 
 
