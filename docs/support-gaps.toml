@@ -195,22 +195,6 @@ status = "path-known"
 reason = "CI builds the .NET binding and ships its Intel macOS native asset, but has no x64 test runtime on the ARM64 runner. Run the binding suite under Rosetta."
 
 [[entry]]
-bindings = ["go"]
-platforms = ["linux-gnu", "linux-musl"]
-archs = ["riscv64", "loongarch64"]
-status = "path-known"
-reason = "The proposed cross-build runs the suite under QEMU. Update its target compiler and runner integration; CI now registers QEMU with binfmt_misc for tests that launch child executables."
-link = "https://github.com/maplibre/maplibre-native-ffi/pull/1327"
-
-[[entry]]
-bindings = ["rust"]
-platforms = ["linux-gnu", "linux-musl"]
-archs = ["riscv64", "loongarch64"]
-status = "path-known"
-reason = "The proposed cross-build runs the suite under QEMU. Update its target compiler and runner integration; CI now registers QEMU with binfmt_misc for tests that launch child executables."
-link = "https://github.com/maplibre/maplibre-native-ffi/pull/1328"
-
-[[entry]]
 bindings = ["dart"]
 platforms = ["linux-gnu"]
 archs = ["riscv64"]
@@ -250,13 +234,6 @@ bindings = ["python"]
 platforms = ["windows-mingw"]
 status = "path-known"
 reason = "The PyO3 extension embeds the C archive through the Rust sys crate. Add its MinGW artifact selection and linkage, build the extension for GNU-target Rust, package runtime DLL dependencies, and test the wheel with Windows CPython."
-
-[[entry]]
-bindings = ["swift"]
-platforms = ["windows", "windows-mingw"]
-status = "path-known"
-reason = "Swift.org ships a Windows toolchain. Add generated Windows platform coverage, SwiftPM import-library discovery and Windows test flags, consume each preset's C DLL, and run the suite with its dependencies on PATH."
-link = "https://www.swift.org/install/windows/"
 
 # No supported toolchain or ABI.
 
@@ -406,13 +383,6 @@ reason = "The Swift WebAssembly SDK targets WASI, not Emscripten."
 link = "https://www.swift.org/documentation/articles/wasm-getting-started.html"
 
 # Missing runner integration must be explicit, even when a toolchain exists.
-
-[[entry]]
-bindings = ["typescript"]
-platforms = ["linux-musl"]
-archs = ["riscv64", "loongarch64"]
-status = "path-known"
-reason = "The musl test task uses official Node and Bun images for x64 and ARM64. Add a target Node runtime to the Alpine QEMU roots and run the suite there."
 
 [[entry]]
 bindings = ["kotlin-native"]
