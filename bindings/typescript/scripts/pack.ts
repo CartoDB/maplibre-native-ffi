@@ -1,8 +1,8 @@
 // Bundles the facade and packs the npm packages for one or more presets:
 //
-//   node scripts/pack.ts [--version <version>] <out dir> <preset>...
+//   node scripts/pack.ts [--version <version>] [--xcframework <directory>] <out dir> <preset>...
 //
-// A user installs the facade, @maplibre/native-ffi, and one backend package,
+// A desktop user installs the facade, @maplibre/native-ffi, and one backend package,
 // such as @maplibre/native-ffi-vulkan. A backend package holds no code. It
 // pins one addon package per platform through optionalDependencies, and each
 // desktop addon package declares the platform it serves, so a package manager
@@ -20,6 +20,7 @@ import {
   cpSync,
   mkdirSync,
   readFileSync,
+  readdirSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -27,12 +28,17 @@ import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 
 const { values, positionals } = parseArgs({
-  options: { version: { type: "string", default: "0.0.0" } },
+  options: {
+    version: { type: "string", default: "0.0.0" },
+    xcframework: { type: "string" },
+  },
   allowPositionals: true,
 });
 const [outArgument, ...presets] = positionals;
 if (outArgument === undefined || presets.length === 0) {
-  throw new Error("usage: pack.ts [--version <version>] <out dir> <preset>...");
+  throw new Error(
+    "usage: pack.ts [--version <version>] [--xcframework <directory>] <out dir> <preset>...",
+  );
 }
 const version = values.version;
 const out = resolve(outArgument);
@@ -51,17 +57,24 @@ const shared = {
 // from process.platform and process.arch.
 const platforms: Record<string, { os: string; libc?: string }> = {
   "linux-gnu": { os: "linux", libc: "glibc" },
+  "linux-musl": { os: "linux", libc: "musl" },
   macos: { os: "darwin" },
+  freebsd: { os: "freebsd" },
+  windows: { os: "win32" },
+  mingw: { os: "win32" },
 };
 const titles: Record<string, string> = {
   opengl: "OpenGL",
   metal: "Metal",
   vulkan: "Vulkan",
   webgpu: "WebGPU",
+  "opengl-mingw": "OpenGL (MinGW)",
+  "vulkan-mingw": "Vulkan (MinGW)",
 };
 // WebGL is the OpenGL backend with the browser's context provider.
 const backends: Record<string, string> = {
   egl: "opengl",
+  wgl: "opengl",
   metal: "metal",
   vulkan: "vulkan",
   webgl: "opengl",
@@ -91,18 +104,20 @@ function addonOf(preset: string): Addon {
       files: ["maplibre_native_ffi.mjs", "maplibre_native_ffi.wasm"],
     };
   }
-  const match = /^(linux-gnu|macos)-(x64|arm64)-(egl|metal|vulkan)$/.exec(
-    preset,
-  );
+  const match =
+    /^(linux-gnu|linux-musl|macos|freebsd|windows|mingw)-(x64|arm64|riscv64|loongarch64)-(egl|wgl|metal|vulkan)$/.exec(
+      preset,
+    );
   if (match === null) {
     throw new Error(
-      `${preset} has no addon package; only the Linux glibc, macOS, and Emscripten presets do`,
+      `${preset} has no addon package; only the Linux, macOS, FreeBSD, Windows, and Emscripten presets do`,
     );
   }
   const { os, libc } = platforms[match[1]!]!;
-  const backend = backends[match[3]!]!;
-  const cpu = match[2]!;
-  const suffix = libc === undefined ? "" : "-gnu";
+  const mingw = match[1] === "mingw";
+  const backend = `${backends[match[3]!]!}${mingw ? "-mingw" : ""}`;
+  const cpu = match[2] === "loongarch64" ? "loong64" : match[2]!;
+  const suffix = libc === undefined ? "" : libc === "musl" ? "-musl" : "-gnu";
   return {
     preset,
     backend,
@@ -111,16 +126,61 @@ function addonOf(preset: string): Addon {
     // The addon links the shared C library, which loads from beside it.
     files: [
       "maplibre_native_ffi.node",
-      os === "darwin"
-        ? "libmaplibre-native-c.dylib"
-        : "libmaplibre-native-c.so",
+      os === "win32"
+        ? "maplibre-native-c.dll"
+        : os === "darwin"
+          ? "libmaplibre-native-c.dylib"
+          : "libmaplibre-native-c.so",
+      ...(mingw
+        ? ["libgcc_s_seh-1.dll", "libstdc++-6.dll", "libwinpthread-1.dll"]
+        : []),
     ],
   };
 }
 
-const addons = presets.map(addonOf);
+// Mobile hosts compile the addon from the facade's sources.
+const addons = presets
+  .filter((preset) => !/^(android|ios|tvos|visionos)-/.test(preset))
+  .map(addonOf);
 
-function pack(directory: string, manifest: object): void {
+function pack(
+  directory: string,
+  manifest: object,
+  inventories: string[] = [],
+  npm: string[] = [],
+): void {
+  const data = manifest as {
+    name: string;
+    files: string[];
+    optionalDependencies?: Record<string, string>;
+    peerDependencies?: Record<string, string>;
+  };
+  execFileSync(
+    "python3",
+    [
+      join(root, "tools/release/binding_sbom.py"),
+      "package",
+      "--name",
+      data.name,
+      "--version",
+      version,
+      "--ecosystem",
+      "npm",
+      "--output",
+      join(directory, "sbom/maplibre-native-ffi.cdx.json"),
+      ...inventories.flatMap((file) => ["--input", file]),
+      ...npm.flatMap((file) => ["--npm", file]),
+      ...Object.entries({
+        ...data.optionalDependencies,
+        ...data.peerDependencies,
+      }).flatMap(([name, version]) => [
+        "--optional-dependency",
+        `${name}@${version}`,
+      ]),
+    ],
+    { stdio: "inherit" },
+  );
+  data.files.push("sbom", "licenses");
   writeFileSync(
     join(directory, "package.json"),
     `${JSON.stringify(manifest, null, 2)}\n`,
@@ -133,8 +193,8 @@ function pack(directory: string, manifest: object): void {
 }
 
 // Node strips types only outside node_modules, so the published facade is the
-// bundle rather than the sources: one entry for Node, Bun, and Deno, and one
-// for the browser, which share their chunks. The browser entry bundles emnapi's
+// bundle rather than the sources: entries for Node, browser, and Hermes
+// share their chunks. The browser entry bundles emnapi's
 // runtime, a development dependency, so the facade depends on nothing.
 const dist = join(binding, "build", "dist");
 rmSync(dist, { recursive: true, force: true });
@@ -146,11 +206,14 @@ execFileSync(
     "pack",
     "src/index.ts",
     "src/browser.ts",
+    "src/hermes.ts",
     "--no-config",
     // The browser entry runs where no require() exists, which the node
     // platform would bring through node:module.
     "--platform",
     "neutral",
+    "--target",
+    "es2021",
     "--fixed-extension",
     "--dts",
     "--out-dir",
@@ -174,20 +237,24 @@ for (const addon of addons) {
     recursive: true,
   });
   const { platform } = addon;
-  pack(directory, {
-    name: addon.name,
-    ...shared,
-    description:
-      platform === undefined
-        ? `The ${addon.preset} browser module of ${source.name}.`
-        : `The ${addon.preset} Node-API addon of ${source.name}.`,
-    ...(platform && {
-      os: [platform.os],
-      cpu: [platform.cpu],
-      ...(platform.libc === undefined ? {} : { libc: [platform.libc] }),
-    }),
-    files: [...addon.files, "licenses"],
-  });
+  pack(
+    directory,
+    {
+      name: addon.name,
+      ...shared,
+      description:
+        platform === undefined
+          ? `The ${addon.preset} browser module of ${source.name}.`
+          : `The ${addon.preset} Node-API addon of ${source.name}.`,
+      ...(platform && {
+        os: [platform.os],
+        cpu: [platform.cpu],
+        ...(platform.libc === undefined ? {} : { libc: [platform.libc] }),
+      }),
+      files: [...addon.files],
+    },
+    [join(install, "sbom/maplibre-native-ffi.cdx.json")],
+  );
 }
 
 for (const backend of new Set(addons.map((addon) => addon.backend))) {
@@ -209,29 +276,100 @@ for (const backend of new Set(addons.map((addon) => addon.backend))) {
 const facade = join(staging, "facade");
 cpSync(dist, join(facade, "dist"), { recursive: true });
 cpSync(join(binding, "README.md"), join(facade, "README.md"));
+// Keep C sources separate from C++ for native embedding hosts.
+for (const name of [
+  "generated_addon.c",
+  "generated_values.c",
+  "generated_addon.h",
+  "runtime.c",
+  "runtime.h",
+  "realm.c",
+  "mutex.h",
+  "hermes",
+]) {
+  cpSync(join(binding, "native", name), join(facade, "native", name), {
+    recursive: true,
+  });
+}
+cpSync(join(root, "include"), join(facade, "native/include"), {
+  recursive: true,
+});
+cpSync(
+  join(root, "third_party/maplibre-native/include/mln/plugin/plugin_api.h"),
+  join(facade, "native/include/mln/plugin/plugin_api.h"),
+);
+cpSync(
+  join(binding, "node_modules/node-api-headers/include"),
+  join(facade, "native/node-api-headers"),
+  { recursive: true },
+);
+cpSync(
+  join(binding, "node_modules/node-api-headers/LICENSE"),
+  join(facade, "native/node-api-headers/LICENSE"),
+);
+if (values.xcframework) {
+  cpSync(
+    resolve(values.xcframework),
+    join(facade, "native/MaplibreNativeC.xcframework"),
+    { recursive: true, dereference: true },
+  );
+  execFileSync(
+    "python3",
+    [
+      join(root, "tools/release/binding_sbom.py"),
+      "framework",
+      join(facade, "native/MaplibreNativeC.xcframework"),
+      version,
+    ],
+    { stdio: "inherit" },
+  );
+}
 // The facade loads whichever backend package the application installed. The
 // peer pins keep that package at the facade's version, and let a strict
 // layout such as pnpm's link it where the facade can resolve it.
 const backendPeers = Object.fromEntries(
   Object.keys(titles).map((backend) => [`${source.name}-${backend}`, version]),
 );
-pack(facade, {
-  name: source.name,
-  ...shared,
-  description: source.description,
-  type: "module",
-  // A bundler that builds for the web takes the browser entry, and Node, Bun,
-  // and Deno take the default.
-  exports: {
-    ".": {
-      browser: { types: "./dist/browser.d.mts", default: "./dist/browser.mjs" },
-      default: { types: "./dist/index.d.mts", default: "./dist/index.mjs" },
+const facadeInventories = values.xcframework
+  ? readdirSync(resolve(values.xcframework), {
+      recursive: true,
+      withFileTypes: true,
+    })
+      .filter((entry) => entry.isFile() && entry.name === "sbom.cdx.json")
+      .map((entry) => join(entry.parentPath, entry.name))
+  : [];
+pack(
+  facade,
+  {
+    name: source.name,
+    ...shared,
+    description: source.description,
+    type: "module",
+    // A bundler that builds for the web takes the browser entry, and Node, Bun,
+    // and Deno take the default.
+    exports: {
+      ".": {
+        browser: {
+          types: "./dist/browser.d.mts",
+          default: "./dist/browser.mjs",
+        },
+        default: { types: "./dist/index.d.mts", default: "./dist/index.mjs" },
+      },
+      "./hermes": {
+        types: "./dist/hermes.d.mts",
+        default: "./dist/hermes.mjs",
+      },
     },
+    engines: source.engines,
+    peerDependencies: backendPeers,
+    peerDependenciesMeta: Object.fromEntries(
+      Object.keys(backendPeers).map((name) => [name, { optional: true }]),
+    ),
+    files: ["dist", "native"],
   },
-  engines: source.engines,
-  peerDependencies: backendPeers,
-  peerDependenciesMeta: Object.fromEntries(
-    Object.keys(backendPeers).map((name) => [name, { optional: true }]),
-  ),
-  files: ["dist"],
-});
+  facadeInventories,
+  [
+    join(binding, "node_modules/@emnapi/runtime"),
+    join(binding, "node_modules/node-api-headers"),
+  ],
+);

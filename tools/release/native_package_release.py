@@ -12,6 +12,7 @@ import pathlib
 import plistlib
 import re
 import subprocess
+import sys
 import tarfile
 import tempfile
 import urllib.request
@@ -19,8 +20,13 @@ import zipfile
 from collections.abc import Iterable
 
 from release_version import parse_version
+from sbom import SBOM_NAME, component, compose, stamp, write_json
 from zig_package import PACKAGE_NAME as ZIG_PACKAGE_NAME
 from zig_package import write_package as write_zig_package
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
+
+from tools.ci import gaps
 
 ARCHIVE_PREFIX = "maplibre-native-c-"
 ARCHIVE_SUFFIX = ".tar.gz"
@@ -52,12 +58,15 @@ def sha256(path: pathlib.Path) -> str:
 
 
 def package_presets(repository: pathlib.Path) -> list[str]:
-    """The presets that a release publishes: every visible configure preset."""
+    """Visible native targets without a declared package gap."""
     presets = json.loads(
         (repository / "CMakePresets.json").read_text(encoding="utf-8")
     ).get("configurePresets", [])
     names = sorted(
-        preset["name"] for preset in presets if not preset.get("hidden", False)
+        preset["name"]
+        for preset in presets
+        if not preset.get("hidden", False)
+        and gaps.gap("c", gaps.target_from_name(preset["name"]), "package") is None
     )
     if not names:
         raise SystemExit("CMakePresets.json defines no native configure presets")
@@ -142,12 +151,19 @@ def descriptor_bytes(content: bytes, version: str, sha: str) -> bytes:
     return (json.dumps(descriptor, indent=2) + "\n").encode()
 
 
+def sbom_bytes(content: bytes, version: str, sha: str) -> bytes:
+    return (
+        json.dumps(stamp(json.loads(content), version, sha), indent=2) + "\n"
+    ).encode()
+
+
 def rewrite_archive(archive: pathlib.Path, version: str, sha: str) -> None:
     root = archive.name.removesuffix(ARCHIVE_SUFFIX)
     pkg_config_name = f"{root}/share/pkgconfig/maplibre-native-c.pc"
     descriptor_name = f"{root}/share/maplibre-native-c/artifact.json"
     found_pkg_config = False
     found_descriptor = False
+    found_sbom = False
 
     descriptor, temporary_name = tempfile.mkstemp(
         prefix=f".{archive.name}.", dir=archive.parent
@@ -186,24 +202,34 @@ def rewrite_archive(archive: pathlib.Path, version: str, sha: str) -> None:
                     content = framework_plist_bytes(source_file.read(), version)
                     member.size = len(content)
                     output.addfile(member, io.BytesIO(content))
+                elif pathlib.PurePosixPath(member.name).name == SBOM_NAME:
+                    content = sbom_bytes(source_file.read(), version, sha)
+                    member.size = len(content)
+                    output.addfile(member, io.BytesIO(content))
+                    found_sbom |= (
+                        member.name == f"{root}/share/maplibre-native-c/{SBOM_NAME}"
+                    )
                 else:
                     output.addfile(member, source_file)
         if not found_pkg_config:
             raise SystemExit(f"{archive.name} is missing maplibre-native-c.pc")
         if not found_descriptor:
             raise SystemExit(f"{archive.name} is missing artifact.json")
+        if not found_sbom:
+            raise SystemExit(f"{archive.name} is missing {SBOM_NAME}")
         os.replace(temporary_path, archive)
     finally:
         temporary_path.unlink(missing_ok=True)
 
 
-def rewrite_xcframework(archive: pathlib.Path, version: str) -> None:
+def rewrite_xcframework(archive: pathlib.Path, version: str, sha: str) -> None:
     """Relabels each framework's Info.plist in the zip with the release version."""
     descriptor, temporary_name = tempfile.mkstemp(
         prefix=f".{archive.name}.", dir=archive.parent
     )
     temporary_path = pathlib.Path(temporary_name)
     found_plist = False
+    found_sbom = False
     try:
         with (
             os.fdopen(descriptor, "wb") as temporary,
@@ -215,6 +241,9 @@ def rewrite_xcframework(archive: pathlib.Path, version: str) -> None:
                 if FRAMEWORK_INFO_PLIST.search(member.filename):
                     content = framework_plist_bytes(content, version)
                     found_plist = True
+                elif pathlib.PurePosixPath(member.filename).name == SBOM_NAME:
+                    content = sbom_bytes(content, version, sha)
+                    found_sbom = True
                 # A fresh entry keeps the mode bits, which carry the macOS
                 # framework's symlinks, and drops the source's size fields.
                 copy = zipfile.ZipInfo(member.filename, member.date_time)
@@ -224,6 +253,8 @@ def rewrite_xcframework(archive: pathlib.Path, version: str) -> None:
                 output.writestr(copy, content)
         if not found_plist:
             raise SystemExit(f"{archive.name} contains no MaplibreNativeC.framework")
+        if not found_sbom:
+            raise SystemExit(f"{archive.name} contains no {SBOM_NAME}")
         os.replace(temporary_path, archive)
     finally:
         temporary_path.unlink(missing_ok=True)
@@ -235,6 +266,34 @@ def archive_descriptor(archive: pathlib.Path) -> dict:
         return json.load(
             source.extractfile(f"{root}/share/maplibre-native-c/artifact.json")
         )
+
+
+def sbom_path(archive: pathlib.Path) -> pathlib.Path:
+    return archive.with_name(
+        archive.name.removesuffix(ARCHIVE_SUFFIX).removesuffix(".zip") + ".cdx.json"
+    )
+
+
+def publish_inventory(archive: pathlib.Path, inventory: dict, tag: str) -> None:
+    # Only the sidecar hashes the final archive. Embedding that hash in the
+    # archive's own inventory would make the checksum self-referential.
+    inventory["metadata"]["component"].setdefault("externalReferences", []).append(
+        {
+            "type": "distribution",
+            "url": f"{RELEASE_DOWNLOAD_URL}/{tag}/{archive.name}",
+            "hashes": [{"alg": "SHA-256", "content": sha256(archive)}],
+        }
+    )
+    write_json(sbom_path(archive), inventory)
+
+
+def sbom_reference(archive: pathlib.Path, tag: str) -> dict:
+    path = sbom_path(archive)
+    return {
+        "file": path.name,
+        "url": f"{RELEASE_DOWNLOAD_URL}/{tag}/{path.name}",
+        "sha256": sha256(path),
+    }
 
 
 def artifact_index(tag: str, archives: list[pathlib.Path]) -> dict:
@@ -272,6 +331,7 @@ def artifact_index(tag: str, archives: list[pathlib.Path]) -> dict:
             "backend": key[1],
             "archive": archive.name,
             "sha256": sha256(archive),
+            "sbom": sbom_reference(archive, tag),
         }
     if index is None:
         raise SystemExit("an artifact index needs at least one archive")
@@ -287,9 +347,20 @@ def artifact_index(tag: str, archives: list[pathlib.Path]) -> dict:
     }
 
 
-def write_artifacts(path: pathlib.Path, tag: str, archives: list[pathlib.Path]) -> str:
+def write_artifacts(
+    path: pathlib.Path,
+    tag: str,
+    archives: list[pathlib.Path],
+    xcframework: pathlib.Path,
+) -> str:
     """Writes the artifact index of release `tag` to `path`, and returns it."""
-    content = json.dumps(artifact_index(tag, archives), indent=2) + "\n"
+    index = artifact_index(tag, archives)
+    index["xcframework"] = {
+        "archive": xcframework.name,
+        "sha256": sha256(xcframework),
+        "sbom": sbom_reference(xcframework, tag),
+    }
+    content = json.dumps(index, indent=2) + "\n"
     path.write_text(content, encoding="utf-8")
     return content
 
@@ -378,10 +449,28 @@ def prepare_assets(
     xcframework = release_dir / XCFRAMEWORK_NAME
     if not xcframework.is_file():
         raise SystemExit(f"invalid native package set: missing {XCFRAMEWORK_NAME}")
-    rewrite_xcframework(xcframework, version)
+    rewrite_xcframework(xcframework, version, sha)
     tag = required_env("PUBLISH_TAG")
+    for archive in archives:
+        archive_root = archive.name.removesuffix(ARCHIVE_SUFFIX)
+        with tarfile.open(archive, "r:gz") as source:
+            inventory = json.load(
+                source.extractfile(
+                    f"{archive_root}/share/maplibre-native-c/{SBOM_NAME}"
+                )
+            )
+        publish_inventory(archive, inventory, tag)
+    with zipfile.ZipFile(xcframework) as source:
+        inventories = [
+            json.loads(source.read(name))
+            for name in sorted(source.namelist())
+            if pathlib.PurePosixPath(name).name == SBOM_NAME
+        ]
+    root_component = component("MaplibreNativeC.xcframework", version, "BSD-2-Clause")
+    root_component["group"] = "org.maplibre.nativeffi"
+    publish_inventory(xcframework, compose(root_component, inventories), tag)
     artifacts_path = release_dir / ARTIFACTS_NAME
-    index = write_artifacts(artifacts_path, tag, archives)
+    index = write_artifacts(artifacts_path, tag, archives, xcframework)
     zig_package = release_dir / ZIG_PACKAGE_NAME
     write_zig_package(
         zig_package,
@@ -394,7 +483,16 @@ def prepare_assets(
         },
     )
     write_notes(release_dir, channel, sha, version, root)
-    write_checksums(release_dir, [*archives, xcframework, zig_package, artifacts_path])
+    write_checksums(
+        release_dir,
+        [
+            *archives,
+            xcframework,
+            zig_package,
+            artifacts_path,
+            *(sbom_path(archive) for archive in [*archives, xcframework]),
+        ],
+    )
 
 
 def main(arguments: list[str] | None = None) -> int:

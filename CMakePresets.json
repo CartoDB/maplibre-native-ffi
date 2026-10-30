@@ -300,8 +300,7 @@
       "vendor": {
         "maplibre-native-ffi": {
           "unit": "android",
-          "runner": "blacksmith-4vcpu-ubuntu-2404",
-          "ctest": false
+          "runner": "blacksmith-4vcpu-ubuntu-2404"
         }
       }
     },
@@ -325,6 +324,17 @@
         "MLN_FFI_TARGET_PLATFORM": "android-arm64",
         "MLN_FFI_ZIG_TARGET": "aarch64-linux-android",
         "MLN_FFI_RUST_TARGET": "aarch64-linux-android"
+      }
+    },
+    {
+      "name": "_android-x86",
+      "hidden": true,
+      "inherits": "_android",
+      "cacheVariables": {
+        "ANDROID_ABI": "x86",
+        "MLN_FFI_TARGET_PLATFORM": "android-x86",
+        "MLN_FFI_ZIG_TARGET": "x86-linux-android",
+        "MLN_FFI_RUST_TARGET": "i686-linux-android"
       }
     },
     {
@@ -391,7 +401,6 @@
         "maplibre-native-ffi": {
           "unit": "ohos",
           "runner": "blacksmith-4vcpu-ubuntu-2404",
-          "ctest": false,
           "miseEnv": "ohos"
         }
       }
@@ -410,7 +419,6 @@
         "maplibre-native-ffi": {
           "unit": "ohos",
           "runner": "blacksmith-4vcpu-ubuntu-2404",
-          "ctest": false,
           "miseEnv": "ohos"
         }
       }
@@ -463,6 +471,27 @@
         "maplibre-native-ffi": {
           "unit": "windows-arm64",
           "runner": "windows-11-arm"
+        }
+      }
+    },
+    {
+      "name": "_mingw-x64",
+      "hidden": true,
+      "inherits": "_single-config",
+      "toolchainFile": "${fileDir}/cmake/toolchains/msys2.cmake",
+      "cacheVariables": {
+        "MLN_FFI_TARGET_ARCHITECTURE": "x64",
+        "MLN_FFI_TARGET_PLATFORM": "windows-mingw-x64",
+        "MLN_FFI_ZIG_TARGET": "x86_64-windows-gnu",
+        "MLN_FFI_RUST_TARGET": "x86_64-pc-windows-gnu",
+        "MLN_FFI_DEFAULT_RENDER_BACKEND": "vulkan"
+      },
+      "vendor": {
+        "maplibre-native-ffi": {
+          "unit": "mingw",
+          "runner": "blacksmith-4vcpu-windows-2025",
+          "miseEnv": "msys2",
+          "softwareGpu": true
         }
       }
     },
@@ -632,9 +661,6 @@
       "cacheVariables": {
         "CMAKE_OSX_SYSROOT": "iphoneos",
         "MLN_FFI_RUST_TARGET": "aarch64-apple-ios"
-      },
-      "vendor": {
-        "maplibre-native-ffi": { "ctest": false }
       }
     },
     {
@@ -674,9 +700,6 @@
       "cacheVariables": {
         "CMAKE_OSX_SYSROOT": "appletvos",
         "MLN_FFI_RUST_TARGET": "aarch64-apple-tvos"
-      },
-      "vendor": {
-        "maplibre-native-ffi": { "ctest": false }
       }
     },
     {
@@ -686,9 +709,6 @@
       "cacheVariables": {
         "CMAKE_OSX_SYSROOT": "xros",
         "MLN_FFI_RUST_TARGET": "aarch64-apple-visionos"
-      },
-      "vendor": {
-        "maplibre-native-ffi": { "ctest": false }
       }
     },
     {
@@ -750,6 +770,16 @@
       "inherits": ["_android-arm64", "_vulkan"]
     },
     {
+      "name": "android-x86-egl",
+      "displayName": "Android x86 EGL",
+      "inherits": ["_android-x86", "_egl"]
+    },
+    {
+      "name": "android-x86-vulkan",
+      "displayName": "Android x86 Vulkan",
+      "inherits": ["_android-x86", "_vulkan"]
+    },
+    {
       "name": "android-x64-egl",
       "displayName": "Android x64 EGL",
       "inherits": ["_android-x64", "_egl"],
@@ -794,6 +824,16 @@
       "name": "ohos-x64-vulkan",
       "displayName": "OHOS x64 Vulkan",
       "inherits": ["_ohos-x64", "_vulkan"]
+    },
+    {
+      "name": "mingw-x64-wgl",
+      "displayName": "MSYS2 MinGW x64 WGL",
+      "inherits": ["_mingw-x64", "_wgl"]
+    },
+    {
+      "name": "mingw-x64-vulkan",
+      "displayName": "MSYS2 MinGW x64 Vulkan",
+      "inherits": ["_mingw-x64", "_vulkan"]
     },
     {
       "name": "windows-x64-wgl",

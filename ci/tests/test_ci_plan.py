@@ -109,17 +109,6 @@ class ResolverTest(unittest.TestCase):
         )
         self.assertEqual(target.backend, "egl")
 
-    def test_a_target_runs_ctest_unless_its_vendor_block_says_not(self):
-        source = presets(
-            preset("_device", hidden=True, vendor={"ctest": False}),
-            preset("tested", vendor=RUNS, **TARGET),
-            preset("untested", inherits="_device", vendor=RUNS, **TARGET),
-        )
-        self.assertEqual(
-            [(target.preset, target.tested) for target in plan.targets(source)],
-            [("tested", True), ("untested", False)],
-        )
-
     def test_a_missing_parent_fails(self):
         with self.assertRaisesRegex(SystemExit, "unknown preset '_gone'"):
             plan.targets(presets(preset("child", inherits=["_gone"])))
@@ -185,37 +174,37 @@ class PresetTest(unittest.TestCase):
                 self.assertEqual(gnu.unit, f"linux-{architecture}")
 
     def test_each_row_names_its_sdk_software_driver_and_zig_packages(self):
-        # The platforms whose suites run every Zig project cache the packages,
-        # those that run some fetch them, and the rest skip them.
+        # Targets that run the Zig binding cache its packages; the rest skip them.
         zig = {
             "linux-gnu": "cache",
             "macos": "cache",
-            "linux-musl": "fetch",
-            "android": "fetch",
-            "ios-maccatalyst": "fetch",
-            "windows": "fetch",
-            "freebsd": "fetch",
+            "linux-musl": "cache",
+            "android": "cache",
+            "ios-maccatalyst": "cache",
+            "windows": "cache",
+            "windows-mingw": "cache",
+            "freebsd": "cache",
         }
         expected = {}
         for name, target in self.targets.items():
             mise_env = (
                 target.platform if target.platform in ("emscripten", "ohos") else ""
             )
+            if target.platform == "windows-mingw":
+                mise_env = "msys2"
             # Only the Linux and Windows runners lack a GPU. The RISC-V and
             # LoongArch targets draw in software under QEMU, and run only the
             # Zig binding's suite.
             emulated = target.architecture in ("riscv64", "loongarch64")
             gpu = (
-                target.platform in ("linux-gnu", "linux-musl", "windows")
+                target.platform
+                in ("linux-gnu", "linux-musl", "windows", "windows-mingw")
                 and not emulated
             )
-            packages = "fetch" if emulated else zig.get(target.platform, "skip")
+            packages = "cache" if emulated else zig.get(target.platform, "skip")
             # Windows ARM64 has no Zig toolchain.
             if name.startswith("windows-arm64-"):
                 packages = "skip"
-            # macOS x64 runs the Zig binding suite without the examples.
-            if name.startswith("macos-x64-"):
-                packages = "fetch"
             expected[name] = (mise_env, target.backend if gpu else "", packages)
         matrix = plan.plan(self.presets, True, [])["matrix"]
         self.assertEqual(
@@ -313,6 +302,31 @@ class PresetTest(unittest.TestCase):
         self.assertEqual(result["jobs"], ["conan-recipes"])
         self.assertEqual(
             [row["preset"] for row in result["matrix"]], ["linux-gnu-x64-vulkan"]
+        )
+
+    def test_pypi_selects_runtime_wheel_producers_including_android(self):
+        matrix = plan.plan(self.presets, False, ["pypi"])["matrix"]
+        self.assertEqual(len(matrix), 19)
+        self.assertTrue(all(row["python_wheel"] for row in matrix))
+        self.assertEqual(
+            {row["preset"] for row in matrix if row["preset"].startswith("android-")},
+            {
+                f"android-{arch}-{backend}"
+                for arch in ("x64", "arm64")
+                for backend in ("egl", "vulkan")
+            },
+        )
+
+    def test_maven_runs_both_browser_runtime_inputs(self):
+        result = plan.plan(self.presets, False, ["maven"])
+        browser_presets = {
+            row["preset"]
+            for row in result["matrix"]
+            if row["preset"].startswith("emscripten-")
+        }
+        self.assertEqual(
+            browser_presets,
+            {"emscripten-wasm32-webgl", "emscripten-wasm32-webgpu"},
         )
 
     def test_an_unknown_unit_fails(self):

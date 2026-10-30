@@ -195,8 +195,8 @@ ci:
     linux-x64:
       covers: >-
         Linux x64 glibc with OpenGL (EGL) and Vulkan. Runs the C tests, every
-        binding's suite, the Dart build, and the example builds: the general
-        check for shared native code, bindings, examples, and build logic.
+        binding's suite, and the Dart build: the general check for shared native
+        code, bindings, and build logic.
       rules:
         - if:
             files:
@@ -292,15 +292,14 @@ ci:
       covers: >-
         iOS and Mac Catalyst with Metal, on device and simulator. Builds the
         native library and the supported Kotlin, Swift, Rust, Dart, and Zig
-        bindings, builds the Swift example for iOS, and runs simulator and Mac
-        Catalyst tests. Catches mobile SDK and cross-compilation problems, and
-        stands in for tvOS and visionOS on what every Apple mobile platform
-        shares. Platform-independent code that Linux x64 tests doesn't need it.
+        bindings, and runs simulator and Mac Catalyst tests. Catches mobile SDK
+        and cross-compilation problems, and stands in for tvOS and visionOS on
+        what every Apple mobile platform shares. Platform-independent code that
+        Linux x64 tests doesn't need it.
       rules:
         - if:
             files:
               - bindings/kotlin/src/iosTest/**
-              - examples/swift-map/Sources/SwiftMapIOS/**
               - third_party/maplibre-native
           then: apply
     tvos:
@@ -341,6 +340,20 @@ ci:
               - src/render/opengl/wgl_*
               - third_party/maplibre-native
           then: apply
+    mingw:
+      covers: >-
+        Windows x64 with OpenGL (WGL) and Vulkan, built with Clang in MSYS2's
+        MINGW64 environment. Runs the C, C#, Dart, Go, Rust, and TypeScript
+        suites and verifies shared and static C package consumers. Catches MinGW
+        headers, libstdc++, GNU archive and import library handling, and MSYS2
+        toolchain setup.
+      rules:
+        - if:
+            files:
+              - cmake/toolchains/msys2.cmake
+              - .config/mise.msys2.*
+              - third_party/maplibre-native
+          then: apply
     windows-arm64:
       covers: >-
         Windows ARM64 with OpenGL (WGL) and Vulkan, running Windows x64's suites
@@ -357,21 +370,22 @@ ci:
     android:
       covers: >-
         Android on ARM, ARM64, and x64 with OpenGL ES and Vulkan, built with the
-        NDK. The x64 jobs run the C, Kotlin, Go, Rust, Zig, and Python tests in
-        the emulator; the ARM jobs only build. Also builds Dart and verifies
-        multi-ABI packaging. Catches NDK, Android API, JNI, emulator, and AAR
-        problems. Platform-independent code that Linux x64 tests doesn't need
-        it.
+        NDK. The x64 jobs run the C, Kotlin, Go, Rust, Swift, Zig, and Python
+        tests in the emulator; the ARM jobs only build. Also builds Dart and
+        verifies multi-ABI packaging. Catches NDK, Android API, JNI, emulator,
+        and AAR problems. Platform-independent code that Linux x64 tests doesn't
+        need it.
       rules:
         - if:
             files:
               - src/platform/android/**
               - cmake/platform/android.cmake
-              - mise.android.*
+              - .config/mise.android.*
               - bindings/kotlin/src/android*/**
               - .mise/tasks/kotlin/check-android-api-floor
               - .mise/tasks/kotlin/verify-android-multi-abi
               - tools/devices/android-serial
+              - tools/env/swift-android-env.sh
               - third_party/maplibre-native
           then: apply
     ohos:
@@ -386,7 +400,7 @@ ci:
         - if:
             files:
               - cmake/platform/ohos.cmake
-              - mise.ohos.*
+              - .config/mise.ohos.*
               - src/platform/ohos/**
               - tests/native/abi/platform/transport.c
               - bindings/typescript/scripts/build-hap.sh
@@ -412,7 +426,7 @@ ci:
               - cmake/platform/emscripten.cmake
               - cmake/toolchains/emscripten.cmake
               - cmake/mln_ffi_emscripten.cmake
-              - mise.emscripten.*
+              - .config/mise.emscripten.*
               - bindings/kotlin/src/wasmJs*/**
               - bindings/kotlin/wasm/**
               - bindings/kotlin/karma.config.d/**
@@ -431,14 +445,16 @@ ci:
               - .mise/tasks/kotlin/publish
               - .mise/tasks/kotlin/verify-staging
               - tests/distribution/kotlin/**
+              - tests/distribution/kotlin-wasm/**
           then: apply
     nuget:
       covers: >-
         Packs the .NET NuGet packages from the native artifacts of every Linux,
-        macOS, Windows, and Android target, so it runs those targets. Only
-        changes to what the packages contain or how they are packed need it: the
-        package projects and their metadata, and the packing script. Ordinary
-        .NET binding changes and one platform's native packaging don't.
+        macOS, Windows, Android, and supported Apple mobile target, so it runs
+        those targets. Only changes to what the packages contain or how they are
+        packed need it: the package projects and their metadata, and the packing
+        script. Ordinary .NET binding changes and one platform's native
+        packaging don't.
       rules:
         - if:
             files:
@@ -447,8 +463,8 @@ ci:
           then: apply
     pypi:
       covers: >-
-        Builds the Python API wheel and each runtime wheel from the native
-        artifacts of every Linux, macOS, and Windows target, so it runs those
+        Packs the Python API and runtime wheels from the wheels that the
+        Android, Linux, macOS, and Windows targets built, so it runs those
         targets. Only changes to what the wheels contain or how they are
         versioned and built need it: the distributions' metadata, the runtime
         build, and the release stamping. Ordinary Python binding changes and one
@@ -476,19 +492,20 @@ ci:
       covers: >-
         Assembles the XCFramework from every Apple Metal target's slice, so it
         runs those targets, and writes the Swift package that a release pushes
-        to the distribution repository with it. Then builds and runs the Swift
-        example against the package on macOS and builds it for iOS. Only changes
-        to what the XCFramework or the package contains or how it is assembled
-        need it: XCFramework packaging, the release's distribution tool, the
-        root manifest's platforms and binding target, and the C module shims.
-        Ordinary Swift binding changes and one Apple target's native packaging
-        don't.
+        to the distribution repository with it. Then builds and runs a Swift
+        consumer against the package on macOS and builds it for iOS. Only
+        changes to what the XCFramework or the package contains or how it is
+        assembled need it: XCFramework packaging, the release's distribution
+        tool, the root manifest's platforms and binding target, and the C module
+        shims. Ordinary Swift binding changes and one Apple target's native
+        packaging don't.
       rules:
         - if:
             files:
               - .mise/tasks/package-xcframework
               - tools/release/swift_package.py
               - bindings/swift/.mise/tasks/test/package
+              - tests/release/swift-package/**
           then: apply
     vcpkg:
       covers: >-

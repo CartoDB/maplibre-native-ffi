@@ -2,6 +2,7 @@ import com.android.build.api.variant.KotlinMultiplatformAndroidComponentsExtensi
 import com.vanniktech.maven.publish.MavenPublishBaseExtension
 import org.gradle.api.publish.PublishingExtension
 import org.gradle.api.publish.maven.MavenPublication
+import org.gradle.api.tasks.Exec
 import org.gradle.api.tasks.bundling.Zip
 import org.gradle.jvm.tasks.Jar
 import org.jetbrains.kotlin.gradle.dsl.KotlinMultiplatformExtension
@@ -14,7 +15,7 @@ import org.maplibre.nativeffi.gradle.MaplibreRuntimeConvention
 import org.maplibre.nativeffi.gradle.VerifyAndroidRuntimeBackend
 import org.maplibre.nativeffi.gradle.canonicalizeKmpRootMetadata
 import org.maplibre.nativeffi.gradle.catalogVersionInt
-import org.maplibre.nativeffi.gradle.embedMaplibreLicenseBundle
+import org.maplibre.nativeffi.gradle.embedMaplibreMetadata
 import org.maplibre.nativeffi.gradle.kotlinNativeTargetPlatform
 import org.maplibre.nativeffi.gradle.nativeInstall
 import org.maplibre.nativeffi.gradle.registerLocalBuildVerification
@@ -29,6 +30,39 @@ fun String.capitalized(): String = replaceFirstChar(Char::uppercaseChar)
 
 fun String.taskSuffix(): String =
   split('-').joinToString("") { it.replaceFirstChar(Char::uppercaseChar) }
+
+fun runtimeSbom(suffix: String, module: String, inventories: List<File>, classifier: String = "") =
+  tasks.register<Exec>("generate${suffix}Sbom") {
+    val output = layout.buildDirectory.file("generated/sbom/$suffix/maplibre-native-ffi.cdx.json")
+    inputs.files(inventories)
+    inputs.files(
+      rootProject.file("tools/release/binding_sbom.py"),
+      rootProject.file("tools/release/sbom.py"),
+    )
+    inputs.property("version", providers.gradleProperty("maplibre.maven.version"))
+    inputs.property(
+      "sourceCommit",
+      providers.exec { commandLine("git", "rev-parse", "HEAD") }.standardOutput.asText,
+    )
+    outputs.file(output)
+    commandLine(
+      listOf(
+        "python3",
+        rootProject.file("tools/release/binding_sbom.py").absolutePath,
+        "package",
+        "--name",
+        "${providers.gradleProperty("maplibre.maven.group").get()}/$module",
+        "--version",
+        providers.gradleProperty("maplibre.maven.version").get(),
+        "--ecosystem",
+        "maven",
+        "--output",
+        output.get().asFile.absolutePath,
+        "--classifier",
+        classifier,
+      ) + inventories.flatMap { listOf("--input", it.absolutePath) },
+    )
+  }
 
 fun nativeTargets(backend: MaplibreRuntimeBackend): Map<String, NativeTargetConfiguration> =
   when (backend) {
@@ -61,6 +95,8 @@ fun nativeTargets(backend: MaplibreRuntimeBackend): Map<String, NativeTargetConf
         put("macosArm64", NativeTargetConfiguration("macos-${backend.id}.def"))
       }
 
+    MaplibreRuntimeBackend.WEBGPU -> emptyMap()
+
     MaplibreRuntimeBackend.METAL ->
       mapOf(
         "iosArm64" to NativeTargetConfiguration("ios-metal.def"),
@@ -79,11 +115,20 @@ fun configureJvmRuntimeArtifacts(backend: String, classifiers: Collection<String
     val verifyLocalBuild =
       registerLocalBuildVerification("verifyJvm${taskSuffix}LocalBuild", nativeInstall)
     val install = nativeInstall.prefix
+    val sbom = install?.let {
+      runtimeSbom(
+        "Jvm$taskSuffix",
+        "maplibre-native-ffi-runtime-$backend-jvm",
+        listOf(it.resolve("share/maplibre-native-c/sbom.cdx.json")),
+        classifier,
+      )
+    }
 
     tasks.register<Jar>("jvm${taskSuffix}RuntimeJar") {
       group = "build"
       description = "Packages the $backend native runtime for $classifier."
       dependsOn(verifyLocalBuild)
+      sbom?.let { from(it) { into("META-INF/sbom") } }
       archiveClassifier.set(classifier)
       destinationDirectory.set(layout.buildDirectory.dir("libs"))
 
@@ -154,6 +199,16 @@ fun configureAndroidRuntimePublication(backend: MaplibreRuntimeBackend) {
       .map { it.file("ndk/$androidNdkVersion/NOTICE") }
   val licenseDirectory = referenceInstall.resolve("share/maplibre-native-c/licenses")
   val headerDirectory = referenceInstall.resolve("include")
+  val sbom =
+    runtimeSbom(
+      "Android",
+      "maplibre-native-ffi-runtime-${backend.id}-android",
+      androidTargets.mapNotNull { target ->
+        nativeInstall(target.targetPlatform, backend.id)
+          .prefix
+          ?.resolve("share/maplibre-native-c/sbom.cdx.json")
+      },
+    )
 
   // Prefab doesn't read jni/, so the Prefab module carries its own copy of each
   // library, taken from the directories that the AAR's jni/ entries come from.
@@ -218,6 +273,7 @@ fun configureAndroidRuntimePublication(backend: MaplibreRuntimeBackend) {
         }
       }
       from(licenseDirectory) { into("META-INF/licenses/maplibre-native-c") }
+      from(sbom) { into("META-INF/sbom") }
       from(androidNdkNotice) { into("META-INF/licenses/android-ndk") }
       from(generatePrefabPackage) { into("prefab") }
     }
@@ -255,6 +311,13 @@ extensions.configure<KotlinMultiplatformExtension> {
     val verifyLocalBuild =
       registerLocalBuildVerification("verify${name.capitalized()}LocalBuild", install)
     val runtimeInstallDir = install.prefix
+    val sbom = runtimeInstallDir?.let {
+      runtimeSbom(
+        name.capitalized(),
+        "$mavenArtifact-${name.lowercase()}",
+        listOf(it.resolve("share/maplibre-native-c/sbom.cdx.json")),
+      )
+    }
     val staticLibraryOptions =
       targetConfiguration.staticLibraries.flatMap { listOf("-staticLibrary", it) }.toTypedArray()
 
@@ -279,16 +342,65 @@ extensions.configure<KotlinMultiplatformExtension> {
         inputs
           .files(targetConfiguration.staticLibraries.map { runtimeInstallDir.resolve("lib/$it") })
           .withPropertyName("maplibreNativeCArchives")
-        embedMaplibreLicenseBundle(runtimeInstallDir.resolve("share/maplibre-native-c/licenses"))
+        dependsOn(requireNotNull(sbom))
+        embedMaplibreMetadata(
+          runtimeInstallDir.resolve("share/maplibre-native-c/licenses"),
+          requireNotNull(sbom).get().outputs.files.singleFile,
+        )
       }
     }
   }
 }
 
-configureJvmRuntimeArtifacts(runtimeBackend, jvmClassifiers)
+if ("jvm" in extensions.getByType<KotlinMultiplatformExtension>().targets.names) {
+  configureJvmRuntimeArtifacts(runtimeBackend, jvmClassifiers)
+}
 
-if (backend != MaplibreRuntimeBackend.METAL) {
+if (backend == MaplibreRuntimeBackend.OPENGL || backend == MaplibreRuntimeBackend.VULKAN) {
   configureAndroidRuntimePublication(backend)
+}
+
+if ("wasmJs" in extensions.getByType<KotlinMultiplatformExtension>().targets.names) {
+  val install = nativeInstall("emscripten-wasm32", runtimeBackend)
+  val verifyLocalBuild = registerLocalBuildVerification("verifyWasmLocalBuild", install)
+  val moduleDirectory = install.prefix?.resolve("share/maplibre-native-kotlin")
+  val sbom = moduleDirectory?.let {
+    runtimeSbom(
+      "Wasm",
+      "$mavenArtifact-wasm-js",
+      listOf(it.resolve("sbom/maplibre-native-ffi.cdx.json")),
+    )
+  }
+  extensions.configure<KotlinMultiplatformExtension> {
+    sourceSets.getByName("wasmJsMain") {
+      resources.srcDir(runtimeInteropDirectory.dir("src/wasmJsMain/resources"))
+      moduleDirectory?.let(resources::srcDir)
+    }
+  }
+  val packageProperties = mapOf("version" to mavenVersion, "backend" to runtimeBackend)
+  tasks.named<Copy>("wasmJsProcessResources") {
+    dependsOn(verifyLocalBuild)
+    sbom?.let { from(it) { into("resources/sbom") } }
+    exclude("sbom/**")
+    exclude("licenses/**")
+    filesMatching("package.json") {
+      // Different backend versions keep KGP's generated npm packages distinct.
+      expand(packageProperties)
+    }
+    from(rootProject.file("LICENSE")) { into("META-INF") }
+    install.prefix?.let {
+      from(requireNotNull(moduleDirectory).resolve("licenses")) {
+        into("META-INF/licenses/maplibre-native-c")
+      }
+    }
+    doFirst {
+      for (name in listOf("maplibre-native-kotlin.mjs", "maplibre-native-kotlin.wasm")) {
+        check(moduleDirectory?.resolve(name)?.isFile == true) {
+          "Missing browser runtime $name; link bindings/kotlin/wasm into $moduleDirectory"
+        }
+      }
+    }
+  }
 }
 
 extensions.configure<MavenPublishBaseExtension> {
@@ -321,7 +433,12 @@ canonicalizeKmpRootMetadata(
           put("linuxArm64", "$mavenArtifact-linuxarm64")
           put("linuxX64", "$mavenArtifact-linuxx64")
           put("macosArm64", "$mavenArtifact-macosarm64")
+          if (backend == MaplibreRuntimeBackend.OPENGL) {
+            put("wasmJs", "$mavenArtifact-wasm-js")
+          }
         }
+
+      MaplibreRuntimeBackend.WEBGPU -> mapOf("wasmJs" to "$mavenArtifact-wasm-js")
 
       MaplibreRuntimeBackend.METAL ->
         mapOf(

@@ -8,6 +8,11 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      units:
+        description: 'CI units as a JSON array, e.g. ["mingw"]. Leave blank for all units.'
+        required: false
+        type: string
   pull_request:
     types:
       - opened
@@ -37,21 +42,23 @@ jobs:
       jobs: ${{ steps.matrix.outputs.jobs }}
     steps:
       - name: Plan coverage
+        if: github.event_name != 'workflow_dispatch' || inputs.units == ''
         id: plan
         uses: sargunv/rubberstamp/actions/plan@971af366b2649956a949eb48f2670cc66ba43988 # main
       - name: Check out repository
         uses: useblacksmith/checkout@25227e61ff9dafe400e22fa487b673eac4e4409a # v1.8.1
         with:
           persist-credentials: false
-          # The root's files, CMakePresets.json among them, come with any
-          # cone.
-          sparse-checkout: tools/ci
+          # The plan reads CMakePresets.json and docs/support-gaps.toml.
+          sparse-checkout: |
+            tools/ci
+            docs
       - name: Plan the jobs that the units run
         id: matrix
         shell: bash
         env:
-          ALL: ${{ steps.plan.outputs.all }}
-          UNITS: ${{ steps.plan.outputs.units }}
+          ALL: ${{ inputs.units != '' && 'false' || steps.plan.outputs.all }}
+          UNITS: ${{ inputs.units || steps.plan.outputs.units }}
         run: |
           python3 -m tools.ci.plan --all "$ALL" --units "$UNITS" |
             jq -r '"matrix=\(.matrix | tojson)", "jobs=\(.jobs | tojson)"' >> "$GITHUB_OUTPUT"
@@ -72,7 +79,7 @@ jobs:
         id: setup
         with:
           sccache-access-key-id: ${{ secrets.R2_SCCACHE_ACCESS_KEY_ID }}
-          sccache-secret-access-key: ${{ secrets.R2_SCCACHE_SECRET_ACCESS_KEY }}
+          sccache-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           gradle: false
       - run: mise run ci:test
       # A generator probe whose toolchain is missing fails here instead of
@@ -86,8 +93,8 @@ jobs:
       - name: Check generated and formatted files
         run: |
           git update-index -q --refresh
-          git diff --exit-code -- . ':(exclude)mise*.lock'
-          git diff --cached --exit-code -- . ':(exclude)mise*.lock'
+          git diff --exit-code -- . ':(exclude).config/mise*.lock'
+          git diff --cached --exit-code -- . ':(exclude).config/mise*.lock'
           untracked="$(git ls-files --others --exclude-standard)"
           test -z "$untracked" || { echo "$untracked"; exit 1; }
   docs:
@@ -109,7 +116,7 @@ jobs:
         id: setup
         with:
           sccache-access-key-id: ${{ secrets.R2_SCCACHE_ACCESS_KEY_ID }}
-          sccache-secret-access-key: ${{ secrets.R2_SCCACHE_SECRET_ACCESS_KEY }}
+          sccache-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       # Dokka configures the Android target and requires its SDK platform.
       - name: Read the Android compile SDK
         id: android
@@ -122,6 +129,64 @@ jobs:
         with:
           packages: platform-tools platforms;android-${{ steps.android.outputs.compile-sdk }}
       - run: mise run //docs:build
+        env:
+          DOCS_BANNER: >-
+            ${{ github.event_name == 'pull_request' && format(
+              'This site is a preview of <a href="{0}">pull request #{1}</a>.',
+              github.event.pull_request.html_url,
+              github.event.number)
+            || 'This site is a preview of the main branch. The published
+            documentation is at <a
+            href="https://maplibre.org/maplibre-native-ffi/">maplibre.org</a>.' }}
+      - run: mise run //docs:package-cloudflare
+      # Swift DocC filenames contain colons, which artifact uploads reject.
+      - run: tar -cf build/cloudflare-pages.tar -C build/cloudflare-pages .
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          retention-days: 7
+          if-no-files-found: error
+          name: docs-cloudflare-${{ github.sha }}
+          path: build/cloudflare-pages.tar
+  docs-preview:
+    name: docs preview
+    needs: docs
+    if: >-
+      github.event_name == 'push'
+      || (github.event_name == 'pull_request'
+      && github.event.pull_request.user.login != 'dependabot[bot]'
+      && github.event.pull_request.head.repo.full_name == github.repository)
+      || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 10
+    environment:
+      name: cloudflare-pages
+      url: ${{ steps.deploy.outputs.url }}
+    env:
+      MISE_NO_HOOKS: "1"
+    steps:
+      - uses: useblacksmith/checkout@25227e61ff9dafe400e22fa487b673eac4e4409a # v1.8.1
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@82a612c5ab8bcda7cc5db6b7e81a8e7584c3dc6e # v5.2.3
+        with:
+          cache: false
+          install_args: node aqua:jqlang/jq
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: docs-cloudflare-${{ github.sha }}
+          path: build
+      - run: |
+          mkdir -p build/cloudflare-pages
+          tar -xf build/cloudflare-pages.tar -C build/cloudflare-pages
+      - name: Deploy the Cloudflare Pages preview
+        id: deploy
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_BRANCH: >-
+            ${{ github.event_name == 'pull_request' && format('pr-{0}',
+            github.event.number) || 'main' }}
+        run: mise run --no-deps //docs:deploy-cloudflare "$CLOUDFLARE_BRANCH"
   target:
     name: target / ${{ matrix.preset }}
     runs-on: ${{ matrix.runner }}
@@ -150,7 +215,7 @@ jobs:
         id: setup
         with:
           sccache-access-key-id: ${{ secrets.R2_SCCACHE_ACCESS_KEY_ID }}
-          sccache-secret-access-key: ${{ secrets.R2_SCCACHE_SECRET_ACCESS_KEY }}
+          sccache-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           mise-env: ${{ matrix.mise_env }}
           device: ${{ matrix.device }}
           software-gpu: ${{ matrix.software_gpu }}
@@ -162,7 +227,11 @@ jobs:
       - name: Resolve Swift packages
         id: resolve
         if: matrix.swift
-        run: mise run //bindings/swift:resolve
+        run: |
+          mise run //bindings/swift:resolve
+          case '${{ matrix.preset }}' in
+            android-*) mise run //bindings/swift:android-sdk ;;
+          esac
       - id: build
         run: mise run build ${{ matrix.preset }}
       - name: Boot ${{ matrix.device }}
@@ -199,6 +268,14 @@ jobs:
           path: bindings/typescript/native/build/${{ matrix.preset }}/install
           if-no-files-found: error
           retention-days: ${{ github.event_name == 'pull_request' && 1 || 30 }}
+      - name: Upload Python runtime wheel
+        if: matrix.python_wheel
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: python-runtime-${{ matrix.preset }}-${{ github.sha }}
+          path: bindings/python/dist/maplibre_native_ffi_runtime_*.whl
+          if-no-files-found: error
+          retention-days: ${{ github.event_name == 'pull_request' && 1 || 30 }}
       - name: Upload ArkTS addon
         if: matrix.addon == 'arkts'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -218,7 +295,7 @@ jobs:
   # Each packaging job waits for the whole target matrix, so any failed target
   # skips it. The run fails on that target either way.
   android-multi:
-    name: Android multi-ABI packaging
+    name: package / android-multi-abi
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 30
     environment: ${{ github.event_name == 'push' && 'sccache' || '' }}
@@ -236,7 +313,7 @@ jobs:
         id: setup
         with:
           sccache-access-key-id: ${{ secrets.R2_SCCACHE_ACCESS_KEY_ID }}
-          sccache-secret-access-key: ${{ secrets.R2_SCCACHE_SECRET_ACCESS_KEY }}
+          sccache-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       - name: Download Android native artifacts
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -245,7 +322,7 @@ jobs:
       - run: mise run //:kotlin:verify-android-multi-abi build/packages/native/android-multi-input
   # The artifact is what the native package publish uploads.
   apple-xcframework:
-    name: Apple XCFramework
+    name: package / xcframework
     runs-on: blacksmith-6vcpu-macos-26
     timeout-minutes: 30
     environment: ${{ github.event_name == 'push' && 'sccache' || '' }}
@@ -263,7 +340,7 @@ jobs:
         id: setup
         with:
           sccache-access-key-id: ${{ secrets.R2_SCCACHE_ACCESS_KEY_ID }}
-          sccache-secret-access-key: ${{ secrets.R2_SCCACHE_SECRET_ACCESS_KEY }}
+          sccache-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           gradle: false
       - name: Download Apple Metal native artifacts
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -281,7 +358,7 @@ jobs:
   # The package that a release writes into the distribution repository, with
   # this run's XCFramework in place of the release's.
   swift-package:
-    name: Swift package
+    name: package / swiftpm
     runs-on: blacksmith-6vcpu-macos-26
     timeout-minutes: 30
     needs:
@@ -305,7 +382,7 @@ jobs:
           path: build/packages/native/swift-input
       - run: mise run --no-deps //bindings/swift:test:package build/packages/native/swift-input
   vcpkg-registry:
-    name: vcpkg registry
+    name: package / vcpkg
     env:
       MISE_NO_HOOKS: "1"
     runs-on: blacksmith-2vcpu-ubuntu-2404
@@ -339,7 +416,7 @@ jobs:
           build/packages/native/vcpkg-input "$RUNNER_TEMP/vcpkg"
           --triplet x64-linux --backend opengl
   conan-recipes:
-    name: Conan recipes
+    name: package / conan
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 15
     needs:
@@ -364,7 +441,7 @@ jobs:
           python tools/release/check_conan.py
           build/packages/native/conan-input/maplibre-native-c-linux-gnu-x64-vulkan.tar.gz
   xmake-package:
-    name: xmake package
+    name: package / xmake
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 15
     needs:
@@ -399,7 +476,7 @@ jobs:
   # Every run stages at the snapshot version, because snapshot publication
   # reuses the verified repository of a run on main.
   kotlin-maven:
-    name: Kotlin Maven
+    name: package / maven
     permissions:
       actions: read
       contents: read
@@ -413,7 +490,7 @@ jobs:
       sha: ${{ github.sha }}
       version: 0.1.0-SNAPSHOT
   dotnet-nuget:
-    name: .NET NuGet
+    name: package / nuget
     permissions:
       actions: read
       contents: read
@@ -427,7 +504,7 @@ jobs:
       sha: ${{ github.sha }}
       version: 0.202601.0-dev.0
   python-wheels:
-    name: Python wheels
+    name: package / pypi
     permissions:
       actions: read
       contents: read
@@ -441,13 +518,14 @@ jobs:
       sha: ${{ github.sha }}
       version: 0.202601.0.dev0
   typescript-npm:
-    name: TypeScript npm
+    name: package / npm
     permissions:
       actions: read
       contents: read
     needs:
       - plan
       - target
+      - apple-xcframework
     if: contains(fromJSON(needs.plan.outputs.jobs), 'typescript-npm')
     uses: ./.github/workflows/_typescript-npm.yml
     with:
@@ -455,7 +533,7 @@ jobs:
       sha: ${{ github.sha }}
       version: 0.202601.0-dev.0
   arkts-ohpm:
-    name: ArkTS OHPM
+    name: package / ohpm
     permissions:
       actions: read
       contents: read
@@ -478,6 +556,7 @@ jobs:
       - plan
       - hygiene
       - docs
+      - docs-preview
       - target
       - android-multi
       - apple-xcframework

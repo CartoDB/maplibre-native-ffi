@@ -182,55 +182,49 @@ class SuitesTest(unittest.TestCase):
     def setUpClass(cls):
         cls.targets = targets()
 
-    def test_a_target_cannot_run_one_task_as_two_suites(self):
-        extra = {
-            "platforms": ["windows"],
-            "commands": [{"task": "//bindings/rust:test", "args": ["release"]}],
+    def test_typescript_linux_and_freebsd_suites_publish_their_tested_addons(self):
+        expected = {
+            f"linux-{libc}-{arch}-{backend}"
+            for libc, architectures in (
+                ("gnu", ("x64", "arm64", "riscv64", "loongarch64")),
+                ("musl", ("x64", "arm64")),
+            )
+            for arch in architectures
+            for backend in ("egl", "vulkan")
+        } | {"freebsd-x64-egl", "freebsd-x64-vulkan"}
+        tested = {
+            name
+            for name, target in self.targets.items()
+            if (target.platform.startswith("linux-") or target.platform == "freebsd")
+            and any(
+                suite.task == "//bindings/typescript:test"
+                for suite in suites.target_suites(target)
+            )
         }
+        self.assertEqual(tested, expected)
+        for name in expected:
+            with self.subTest(preset=name):
+                self.assertEqual(plan.addon(self.targets[name]), "typescript")
+
+    def test_a_target_cannot_run_one_task_as_two_suites(self):
+        target = self.targets["windows-x64-wgl"]
+        command = ["mise", "run", "//bindings/rust:test", target.preset]
         with (
-            mock.patch.object(suites, "SUITES", [*suites.SUITES, extra]),
+            mock.patch.object(
+                suites, "consumer_commands", return_value=[command, command]
+            ),
             self.assertRaisesRegex(SystemExit, "'bindings-rust-test'"),
         ):
-            suites.target_suites(self.targets["windows-x64-wgl"])
+            suites.target_suites(target)
 
-    def test_a_suite_environment_reaches_its_commands_in_the_listed_targets(self):
-        extra = {
-            "platforms": ["windows"],
-            "commands": [
-                {"task": "//examples/c-map:check"},
-                {"task": "//examples/c-map:smoke"},
-            ],
-            "environments": [
-                {"include": ["windows-x64-wgl"], "env": {"STEP_PROBE": "1"}}
-            ],
-        }
-        presets = (
-            "windows-x64-wgl",
-            "windows-x64-vulkan",
-            "windows-arm64-wgl",
-            "windows-arm64-vulkan",
-        )
-        with mock.patch.object(suites, "SUITES", [*suites.SUITES, extra]):
-            environments = {
-                (preset, suite.command): suite.env
-                for preset in presets
-                for suite in suites.target_suites(self.targets[preset])
-                if "STEP_PROBE" in suite.env
-                or suite.task.startswith("//examples/c-map:")
-            }
-        # The packaged target's consumer environment still applies.
-        probed = {"MISE_TASK_SKIP": "//:build", "STEP_PROBE": "1"}
-        plain = {"MISE_TASK_SKIP": "//:build"}
-        self.assertEqual(
-            environments,
-            {
-                (preset, ("mise", "run", f"//examples/c-map:{task}", preset)): (
-                    probed if preset == "windows-x64-wgl" else plain
-                )
-                for preset in presets
-                for task in ("check", "smoke")
-            },
-        )
+    def test_consumer_suites_use_the_packaged_install(self):
+        for target in self.targets.values():
+            for suite in suites.target_suites(target):
+                if suite.task.startswith("//bindings/"):
+                    with self.subTest(preset=target.preset, task=suite.task):
+                        self.assertEqual(suite.env, {"MISE_TASK_SKIP": "//:build"})
+                        self.assertIn("archive", suite.prerequisites)
+                        self.assertIn("install", suite.prerequisites)
 
     def test_dart_ios_runs_on_the_simulator_and_builds_for_the_device(self):
         for preset, action in (
@@ -242,6 +236,86 @@ class SuitesTest(unittest.TestCase):
             ]
             self.assertIn(
                 ("mise", "run", f"//bindings/dart:{action}", preset), commands
+            )
+
+    def test_swift_builds_android_arm_targets_and_tests_x64(self):
+        for architecture in ("arm", "arm64", "x64", "x86"):
+            for backend in ("egl", "vulkan"):
+                preset = f"android-{architecture}-{backend}"
+                with self.subTest(preset=preset):
+                    commands = [
+                        suite.command
+                        for suite in suites.target_suites(self.targets[preset])
+                        if suite.task.startswith("//bindings/swift:")
+                    ]
+                    action = "test" if architecture == "x64" else "build"
+                    self.assertEqual(
+                        commands,
+                        []
+                        if architecture == "x86"
+                        else [("mise", "run", f"//bindings/swift:{action}", preset)],
+                    )
+
+    def test_dotnet_android_builds_packages_and_tests_emulator_targets(self):
+        for preset, action in (
+            ("android-arm-egl", "build"),
+            ("android-arm-vulkan", "build"),
+            ("android-arm64-egl", "build"),
+            ("android-arm64-vulkan", "build"),
+            ("android-x86-egl", "build"),
+            ("android-x86-vulkan", "build"),
+            ("android-x64-egl", "test"),
+            ("android-x64-vulkan", "test"),
+        ):
+            commands = [
+                suite.command for suite in suites.target_suites(self.targets[preset])
+            ]
+            self.assertIn(
+                ("mise", "run", f"//bindings/dotnet:{action}", preset), commands
+            )
+
+    def test_dotnet_apple_builds_devices_and_tests_simulators_and_catalyst(self):
+        for preset, action in (
+            ("ios-arm64-metal", "build"),
+            ("ios-simulator-arm64-metal", "test"),
+            ("ios-maccatalyst-arm64-metal", "test"),
+            ("tvos-arm64-metal", "build"),
+            ("tvos-simulator-arm64-metal", "test"),
+        ):
+            commands = [
+                suite.command for suite in suites.target_suites(self.targets[preset])
+            ]
+            self.assertIn(
+                ("mise", "run", f"//bindings/dotnet:{action}", preset), commands
+            )
+
+    def test_hermes_builds_mobile_hosts_and_tests_device_targets(self):
+        for preset, action in (
+            ("android-arm-egl", "build"),
+            ("android-arm-vulkan", "build"),
+            ("android-arm64-egl", "build"),
+            ("android-arm64-vulkan", "build"),
+            ("android-x86-egl", "build"),
+            ("android-x86-vulkan", "build"),
+            ("android-x64-egl", "test"),
+            ("android-x64-vulkan", "test"),
+            ("ios-arm64-metal", "build"),
+            ("ios-simulator-arm64-metal", "test"),
+            ("ios-maccatalyst-arm64-metal", "test"),
+            ("tvos-arm64-metal", "build"),
+            ("tvos-simulator-arm64-metal", "test"),
+            ("visionos-arm64-metal", "build"),
+            ("visionos-simulator-arm64-metal", "test"),
+        ):
+            commands = [
+                suite.command for suite in suites.target_suites(self.targets[preset])
+            ]
+            self.assertEqual(
+                commands.count(
+                    ("mise", "run", f"//bindings/typescript:{action}:hermes", preset)
+                ),
+                1,
+                preset,
             )
 
 

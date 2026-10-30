@@ -1,7 +1,7 @@
 # Sourced by the Go binding's cross-compilation tasks with a native preset as
 # $1. Maps musl, FreeBSD, Android, macOS x64, and OpenHarmony presets to
 # GOOS/GOARCH and exports the cross C toolchain from the native build's Zig
-# wrappers, the Android NDK, Apple Clang, or the OpenHarmony SDK. Leaves `goos`
+# wrappers, the Android NDK, MSYS2 Clang, Apple Clang, or the OpenHarmony SDK. Leaves `goos`
 # empty for presets that run on the host, which macOS x64 does under Rosetta. OpenHarmony has no
 # Go port, so its presets build GOOS=linux binaries against the OHOS sysroot;
 # the Oniro emulator runs them.
@@ -10,7 +10,7 @@
 goos=
 
 case "$1" in
-  android-arm-* | android-arm64-* | android-x64-*)
+  android-arm-* | android-arm64-* | android-x86-* | android-x64-*)
     goos=android
     case "$1" in
       android-arm-*)
@@ -21,6 +21,10 @@ case "$1" in
       android-arm64-*)
         goarch=arm64
         compiler_prefix=aarch64-linux-android
+        ;;
+      android-x86-*)
+        goarch=386
+        compiler_prefix=i686-linux-android
         ;;
       android-x64-*)
         goarch=amd64
@@ -56,6 +60,20 @@ case "$1" in
     # dynamically, so the test binary can load Alpine's graphics drivers.
     export GOOS="$goos" GOARCH="$goarch" CGO_ENABLED=1
     export CC="$compiler" CXX="$compiler_cxx"
+    ;;
+  windows-x64-* | windows-arm64-* | mingw-x64-*)
+    if [[ "$1" == windows-arm64-* ]]; then
+      goarch=arm64
+    else
+      goarch=amd64
+    fi
+    # cgo takes GNU-style compiler flags, including when it links an MSVC DLL.
+    export GOOS=windows GOARCH="$goarch" CGO_ENABLED=1
+    export CC="$MLN_FFI_MSYS2_ROOT/bin/clang.exe"
+    export CXX="$MLN_FFI_MSYS2_ROOT/bin/clang++.exe"
+    export PKG_CONFIG="$MLN_FFI_MSYS2_ROOT/bin/pkgconf.exe"
+    msys2_bin_dir="$(cygpath -u "$MLN_FFI_MSYS2_ROOT/bin")"
+    export PATH="$msys2_bin_dir${PATH:+:$PATH}"
     ;;
   macos-x64-*)
     export GOARCH=amd64 CGO_ENABLED=1

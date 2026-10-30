@@ -1,0 +1,95 @@
+// hk orchestrates checks for pre-commit, `mise run check`, and `mise run fix`.
+// Repository-wide tools are installed at the root. Language-specific steps
+// enter their binding's mise context and install that toolchain on demand.
+
+amends "package://github.com/jdx/hk/releases/download/v2.8.1/hk@2.8.1#/Config.pkl"
+
+import "package://github.com/jdx/hk/releases/download/v2.8.1/hk@2.8.1#/Builtins.pkl"
+
+steps {
+  ["dprint"] = (Builtins.dprint) {
+    // the default batch=false hits the cmd length limit on windows
+    batch = true
+  }
+  ["jactionlint"] = (Builtins.jactionlint) {}
+  // Whole-suite check: a header change can export a function that no C test
+  // calls, and a test change can call one that tests/uncalled-exports.txt
+  // still lists.
+  ["export-calls"] {
+    glob = List(
+      "include/**/*.h",
+      "tests/native/**",
+      "tests/uncalled-exports.txt",
+      "tools/lint/check-export-calls.py",
+    )
+    check = "mise run check-export-calls"
+  }
+  // Every binding maps every conformance case to a test that exists or to a
+  // reason it does not apply, so it reruns when any binding test changes. No
+  // case is left as todo, so a new one fails until a binding maps it.
+  ["conformance"] {
+    glob = List(
+      "tests/conformance/**",
+      "bindings/**",
+      "tools/lint/check-conformance.py",
+    )
+    check = "uv run --no-sync python tools/lint/check-conformance.py --strict"
+  }
+  // Whole-monorepo check: a task can depend on a task in another config root,
+  // and each `mise.<env>.toml` adds or changes tasks of its own.
+  ["mise-tasks"] {
+    glob = List("**/mise.toml", ".config/mise.*.toml", "**/.mise/tasks/**")
+    check = "mise run //:check-tasks"
+  }
+  // Whole-repository check: the baseline counts violations per file, so a
+  // count that falls in one file has to fail the check until it is lowered.
+  ["test-hygiene"] {
+    check = "uv run --no-sync python tools/lint/check-test-hygiene.py"
+  }
+  ["jvl"] {
+    glob = List("**/*.json", "**/*.jsonc")
+    check = "jvl check {{files}}"
+  }
+  ["vp-check"] {
+    glob = List(
+      "**/*.js",
+      "**/*.mjs",
+      "**/*.cjs",
+      "**/*.ts",
+      "**/*.mts",
+      "**/*.cts",
+      "**/*.jsx",
+      "**/*.tsx",
+      "**/*.vue",
+      "**/*.svelte",
+      "**/*.astro",
+    )
+    exclude = List("third_party/**")
+    check = "pnpm exec vp check --no-fmt {{files}}"
+    fix = "pnpm exec vp check --no-fmt --fix {{files}}"
+  }
+  // The guides embed these snippets verbatim. Header changes are in the glob so
+  // an API change that invalidates a documented snippet fails here first.
+  ["docs-snippets"] {
+    glob = List("docs/snippets/c/**/*.c", "include/**/*.h")
+    check = "mise run //docs:check-snippets"
+  }
+  // dprint's ruff plugin formats; this step only lints.
+  ["ruff"] {
+    glob = List("**/*.py", "**/*.pyi")
+    exclude = List("third_party/**")
+    check = "uv run --no-sync ruff check {{files}}"
+    fix = "uv run --no-sync ruff check --fix {{files}}"
+  }
+  ["ty"] {
+    glob = List("bindings/python/python/**/*.py", "docs/scripts/**/*.py")
+    check = "uv run --no-sync ty check --error-on-warning --ignore invalid-argument-type --ignore not-iterable --ignore not-subscriptable {{files}}"
+  }
+  // The generator ignores no diagnostic. The Python emitters wait for their
+  // rewrite onto the safe Rust crate.
+  ["ty-bindgen"] {
+    glob = List("tools/bindgen/**/*.py")
+    exclude = List("tools/bindgen/emitters/python*.py")
+    check = "uv run --no-sync ty check --error-on-warning {{files}}"
+  }
+}

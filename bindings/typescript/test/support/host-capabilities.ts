@@ -13,7 +13,7 @@ import type { AddressInfo } from "node:net";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
-export type Host = "node" | "bun" | "deno" | "arkts" | "browser";
+export type Host = "node" | "bun" | "deno" | "arkts" | "browser" | "hermes";
 
 export type Capability =
   | "httpOrigin"
@@ -150,7 +150,7 @@ function childProcess(
   options: ChildOptions = {},
 ): Promise<ChildResult> {
   const { command, args } = runtimeCommand(
-    typeof script === "string" ? script : fileURLToPath(script),
+    typeof script === "string" ? script : fileURLToPath(script.href),
     options.args ?? [],
   );
   const env: Record<string, string> = {};
@@ -253,7 +253,7 @@ const realmScript = new URL("../fixtures/realm.ts", import.meta.url);
 async function nodeWorkerThreads() {
   const { Worker } = await import("node:worker_threads");
   return (data: unknown): Realm => {
-    const worker = new Worker(realmScript);
+    const worker = new Worker(fileURLToPath(realmScript.href));
     const messages = inbox();
     const exited = new Promise<void>((resolve) =>
       worker.once("exit", () => resolve()),

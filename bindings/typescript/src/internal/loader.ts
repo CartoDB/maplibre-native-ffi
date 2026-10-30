@@ -13,11 +13,18 @@ import process from "node:process";
 import type { Addon } from "./addon.ts";
 
 const SCOPE = "@maplibre/native-ffi";
-const BACKENDS = ["opengl", "metal", "vulkan"];
+const BACKENDS = ["opengl", "metal", "vulkan", "opengl-mingw", "vulkan-mingw"];
 
 /** The addon package of a backend for this platform and architecture. */
 function addonPackage(backend: string): string {
-  const libc = process.platform === "linux" ? "-gnu" : "";
+  let libc = process.platform === "linux" ? "-gnu" : "";
+  // Deno publishes GNU Linux binaries; its getReport() needs --allow-sys.
+  if (process.platform === "linux" && !("Deno" in globalThis)) {
+    const report = process.report.getReport() as {
+      header: { glibcVersionRuntime?: string };
+    };
+    libc = report.header.glibcVersionRuntime ? "-gnu" : "-musl";
+  }
   return `${SCOPE}-${backend}-${process.platform}-${process.arch}${libc}`;
 }
 

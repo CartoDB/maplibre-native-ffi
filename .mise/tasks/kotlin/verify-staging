@@ -17,6 +17,7 @@ ROOT_TARGET_MODULES = {
         "android": "maplibre-native-ffi-android",
         "androidNativeArm32": "maplibre-native-ffi-androidnativearm32",
         "androidNativeArm64": "maplibre-native-ffi-androidnativearm64",
+        "androidNativeX86": "maplibre-native-ffi-androidnativex86",
         "androidNativeX64": "maplibre-native-ffi-androidnativex64",
         "iosArm64": "maplibre-native-ffi-iosarm64",
         "iosSimulatorArm64": "maplibre-native-ffi-iossimulatorarm64",
@@ -26,21 +27,25 @@ ROOT_TARGET_MODULES = {
         "linuxArm64": "maplibre-native-ffi-linuxarm64",
         "linuxX64": "maplibre-native-ffi-linuxx64",
         "macosArm64": "maplibre-native-ffi-macosarm64",
+        "wasmJs": "maplibre-native-ffi-wasm-js",
     },
     "maplibre-native-ffi-runtime-opengl": {
         "android": "maplibre-native-ffi-runtime-opengl-android",
         "androidNativeArm32": "maplibre-native-ffi-runtime-opengl-androidnativearm32",
         "androidNativeArm64": "maplibre-native-ffi-runtime-opengl-androidnativearm64",
+        "androidNativeX86": "maplibre-native-ffi-runtime-opengl-androidnativex86",
         "androidNativeX64": "maplibre-native-ffi-runtime-opengl-androidnativex64",
         "jvm": "maplibre-native-ffi-runtime-opengl-jvm",
         "linuxArm64": "maplibre-native-ffi-runtime-opengl-linuxarm64",
         "linuxX64": "maplibre-native-ffi-runtime-opengl-linuxx64",
         "macosArm64": "maplibre-native-ffi-runtime-opengl-macosarm64",
+        "wasmJs": "maplibre-native-ffi-runtime-opengl-wasm-js",
     },
     "maplibre-native-ffi-runtime-vulkan": {
         "android": "maplibre-native-ffi-runtime-vulkan-android",
         "androidNativeArm32": "maplibre-native-ffi-runtime-vulkan-androidnativearm32",
         "androidNativeArm64": "maplibre-native-ffi-runtime-vulkan-androidnativearm64",
+        "androidNativeX86": "maplibre-native-ffi-runtime-vulkan-androidnativex86",
         "androidNativeX64": "maplibre-native-ffi-runtime-vulkan-androidnativex64",
         "jvm": "maplibre-native-ffi-runtime-vulkan-jvm",
         "linuxArm64": "maplibre-native-ffi-runtime-vulkan-linuxarm64",
@@ -54,6 +59,9 @@ ROOT_TARGET_MODULES = {
         "tvosSimulatorArm64": "maplibre-native-ffi-runtime-metal-tvossimulatorarm64",
         "jvm": "maplibre-native-ffi-runtime-metal-jvm",
         "macosArm64": "maplibre-native-ffi-runtime-metal-macosarm64",
+    },
+    "maplibre-native-ffi-runtime-webgpu": {
+        "wasmJs": "maplibre-native-ffi-runtime-webgpu-wasm-js",
     },
 }
 
@@ -78,6 +86,7 @@ RUNTIME_MODULES = {
 NATIVE_TARGETS = {
     "androidNativeArm32": "android-arm",
     "androidNativeArm64": "android-arm64",
+    "androidNativeX86": "android-x86",
     "androidNativeX64": "android-x64",
     "iosArm64": "ios-arm64",
     "iosSimulatorArm64": "ios-simulator-arm64",
@@ -115,6 +124,8 @@ POM_NAMESPACE = {"m": "http://maven.apache.org/POM/4.0.0"}
 
 
 def jvm_classifiers(backend: str) -> set[str]:
+    if backend == "webgpu":
+        return set()
     return {"natives-macos-arm64"} if backend == "metal" else JVM_CLASSIFIERS
 
 
@@ -288,6 +299,17 @@ def aar_keep_rules(aar: zipfile.ZipFile) -> str:
     return "\n".join(aar.read(name).decode("utf-8") for name in names)
 
 
+def verify_sbom(archive: zipfile.ZipFile, name: str) -> None:
+    inventory = json.loads(archive.read(name))
+    if inventory.get("bomFormat") != "CycloneDX":
+        raise SystemExit(f"{archive.filename} has no CycloneDX inventory at {name}")
+    refs = {item["bom-ref"] for item in inventory["components"]}
+    refs.add(inventory["metadata"]["component"]["bom-ref"])
+    for entry in inventory["dependencies"]:
+        if not {entry["ref"], *entry["dependsOn"]} <= refs:
+            raise SystemExit(f"{archive.filename} has dangling SBOM dependency references")
+
+
 def verify_android(root: pathlib.Path) -> None:
     # The binding AAR carries the Kotlin API and its private JNI shim. An
     # Android host of any language takes the C library and the TLS component from
@@ -298,7 +320,7 @@ def verify_android(root: pathlib.Path) -> None:
     )
     with zipfile.ZipFile(core) as aar:
         names = set(aar.namelist())
-        for abi in ("armeabi-v7a", "arm64-v8a", "x86_64"):
+        for abi in ("armeabi-v7a", "arm64-v8a", "x86", "x86_64"):
             expected = f"jni/{abi}/libmaplibre-native-ffi-jni.so"
             if expected not in names:
                 raise SystemExit(f"the core Android AAR is missing {expected}")
@@ -334,6 +356,7 @@ def verify_android(root: pathlib.Path) -> None:
             f"{backend} Android runtime AAR",
         )
         with zipfile.ZipFile(runtime) as aar:
+            verify_sbom(aar, "META-INF/sbom/maplibre-native-ffi.cdx.json")
             names = set(aar.namelist())
             for license_name in native_licenses(backend, "android-arm64"):
                 expected = f"META-INF/licenses/maplibre-native-c/{license_name}"
@@ -351,7 +374,7 @@ def verify_android(root: pathlib.Path) -> None:
             ):
                 if expected not in names:
                     raise SystemExit(f"{runtime} is missing {expected}")
-            abis = ("armeabi-v7a", "arm64-v8a", "x86_64")
+            abis = ("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
             for abi in abis:
                 for name in ("abi.json", "libmaplibre-native-c.so"):
                     expected = f"{prefab}/libs/android.{abi}/{name}"
@@ -405,6 +428,7 @@ def verify_jvm(root: pathlib.Path) -> None:
                 f"{backend} {classifier} JVM runtime JAR",
             )
             with zipfile.ZipFile(runtime) as jar:
+                verify_sbom(jar, "META-INF/sbom/maplibre-native-ffi.cdx.json")
                 prefix = f"META-INF/maplibre-native-ffi/{classifier}/"
                 license_prefix = "META-INF/licenses/maplibre-native-c/"
                 native_libraries = [
@@ -493,6 +517,7 @@ def verify_native(root: pathlib.Path) -> None:
             f"{module} runtime cinterop KLIB",
         )
         with zipfile.ZipFile(interop) as klib:
+            verify_sbom(klib, "resources/sbom/maplibre-native-ffi.cdx.json")
             names = set(klib.namelist())
             if not any(
                 name.endswith("/included/libmaplibre-native-c.a")
@@ -509,6 +534,60 @@ def verify_native(root: pathlib.Path) -> None:
                     raise SystemExit(f"{interop} is missing {expected}")
 
 
+def verify_wasm(root: pathlib.Path) -> None:
+    one(module_files(root, "maplibre-native-ffi-wasm-js", ".klib"), "binding KLIB")
+    for backend in ("opengl", "webgpu"):
+        module = f"maplibre-native-ffi-runtime-{backend}-wasm-js"
+        runtime = one(module_files(root, module, ".klib"), f"{backend} runtime KLIB")
+        with zipfile.ZipFile(runtime) as archive:
+            verify_sbom(archive, "resources/sbom/maplibre-native-ffi.cdx.json")
+            names = set(archive.namelist())
+            for name in (
+                "package.json",
+                "maplibre-native-kotlin.mjs",
+                "maplibre-native-kotlin.wasm",
+                "META-INF/LICENSE",
+                *(
+                    f"META-INF/licenses/maplibre-native-c/{name}"
+                    for name in COMMON_NATIVE_LICENSES | {"rust.md", "fastpfor.txt"}
+                ),
+            ):
+                if name not in names:
+                    raise SystemExit(f"{runtime} is missing {name}")
+            package = json.loads(archive.read("package.json"))
+            if (
+                package["name"] != "@maplibre/native-ffi-runtime"
+                or package["main"] != "maplibre-native-kotlin.mjs"
+            ):
+                raise SystemExit(f"{runtime} has invalid browser package metadata")
+            if not archive.read("maplibre-native-kotlin.wasm").startswith(b"\0asm"):
+                raise SystemExit(f"{runtime} does not contain a WebAssembly module")
+            if any("-test" in name for name in names):
+                raise SystemExit(f"{runtime} contains test fixtures")
+
+
+def verify_wasm_consumer(root: pathlib.Path) -> None:
+    pom = one(module_files(root, "maplibre-native-ffi", ".pom"), "binding POM")
+    version = required_pom_text(pom, element_tree.parse(pom).getroot(), "m:version")
+    chromium = subprocess.check_output(
+        ["node", ROOT / "scripts/find-chromium.mjs"], text=True
+    ).strip()
+    for backend in ("webgl", "webgpu"):
+        subprocess.run(
+            [
+                ROOT / "gradlew",
+                "--project-dir",
+                ROOT / "tests/distribution/kotlin-wasm",
+                "wasmJsBrowserTest",
+                f"-Pmaplibre.repository={root.resolve().as_uri()}",
+                f"-Pmaplibre.version={version}",
+                f"-Pmaplibre.backend={backend}",
+                f"-Pmaplibre.chromium={chromium}",
+            ],
+            check=True,
+        )
+
+
 def main() -> int:
     if len(sys.argv) not in (2, 3):
         print(
@@ -520,6 +599,10 @@ def main() -> int:
     root = pathlib.Path(sys.argv[1])
     expected_version = sys.argv[2] if len(sys.argv) == 3 else None
     verify_repository_layout(root, expected_version)
+    for pom in root.rglob("*.pom"):
+        sidecar = pom.with_name(pom.stem + "-cyclonedx.json")
+        if not sidecar.is_file():
+            raise SystemExit(f"{pom} has no cyclonedx classifier")
     verify_metadata(root, expected_version)
     verify_javadoc(root)
     verify_android(root)
@@ -527,6 +610,8 @@ def main() -> int:
     verify_jvm(root)
     verify_jvm_consumer(root)
     verify_native(root)
+    verify_wasm(root)
+    verify_wasm_consumer(root)
     return 0
 
 

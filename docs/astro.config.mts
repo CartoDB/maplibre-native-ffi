@@ -31,6 +31,7 @@ export default defineConfig({
         baseUrl:
           "https://github.com/maplibre/maplibre-native-ffi/edit/main/docs/",
       },
+      routeMiddleware: "./src/banner.ts",
       customCss: ["./src/styles/custom.css"],
       plugins: [
         starlightCopyButton(),
@@ -50,6 +51,7 @@ export default defineConfig({
         { label: "Overview", link: "/" },
         { label: "Install", slug: "install" },
         { label: "Concepts", slug: "concepts" },
+        { label: "Examples", slug: "examples" },
         {
           label: "Guides",
           items: [{ autogenerate: { directory: "guides" } }],

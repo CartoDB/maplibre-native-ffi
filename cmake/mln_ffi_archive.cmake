@@ -4,7 +4,7 @@
 # mln_ffi_platform_dependencies; nothing here knows which compiler produced the
 # inputs:
 #
-#   MLN_FFI_ARCHIVE_FORMAT          coff, apple, elf, or none
+#   MLN_FFI_ARCHIVE_FORMAT          coff, mingw, apple, elf, wasm, or none
 #   MLN_FFI_ARCHIVE_TOOL            archiver for the apple format
 #   MLN_FFI_ARCHIVE_BUNDLED_RUNTIME archives to merge in on demand, such as a
 #                                   C++ runtime the consumer should not supply
@@ -47,7 +47,16 @@ function(mln_ffi_bundle_clang_cxx_runtime target notice)
   endforeach()
 
   # The runtime is redistributed inside the artifact, so its notice ships too.
-  mln_ffi_add_license(${target} "${notice}" "cxx-runtime.txt")
+  mln_ffi_add_component(
+    ${target}
+    llvm-cxx-runtime
+    https://github.com/llvm/llvm-project
+    "Apache-2.0 WITH LLVM-exception"
+    VERSION
+    "${CMAKE_CXX_COMPILER_VERSION}"
+    NOTICES
+    "${notice}"
+    cxx-runtime.txt)
   set_target_properties(
     ${target}
     PROPERTIES
@@ -232,7 +241,7 @@ function(mln_ffi_configure_complete_static_archive target)
     mln_ffi_elf_archive_commands(
       MLN_FFI_ARCHIVE_COMMANDS "${MLN_FFI_COMPLETE_STATIC_OBJECT}"
       "${MLN_FFI_COMPLETE_STATIC_ARCHIVE}" ${MLN_FFI_INPUT_ARCHIVES})
-  elseif(MLN_FFI_ARCHIVE_FORMAT STREQUAL "wasm")
+  elseif(MLN_FFI_ARCHIVE_FORMAT MATCHES "^(mingw|wasm)$")
     set(MLN_FFI_ARCHIVE_COMMANDS COMMAND "${CMAKE_AR}" qcL
         "${MLN_FFI_COMPLETE_STATIC_ARCHIVE}" ${MLN_FFI_INPUT_ARCHIVES})
   else()

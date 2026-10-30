@@ -32,14 +32,16 @@ public sealed unsafe partial class RenderSessionHandle
 
     internal RenderSessionHandle(MapHandle parent, MlnRenderSession handle, Task completion)
     {
+        // Mono may retain a completed continuation on its worker stack.
+        // Clear its holder so it no longer roots this handle.
         Ready = completion
             .ContinueWith(
                 static (finished, retained) =>
                 {
-                    GC.KeepAlive(retained);
+                    ((System.Runtime.CompilerServices.StrongBox<object?>)retained!).Value = null;
                     return finished;
                 },
-                this,
+                new System.Runtime.CompilerServices.StrongBox<object?>(this),
                 CancellationToken.None,
                 TaskContinuationOptions.ExecuteSynchronously,
                 TaskScheduler.Default
@@ -299,6 +301,19 @@ public sealed unsafe partial class RenderSessionHandle
     }
 
     /// <summary>
+    /// Reports the session's first terminal failure from any native thread.
+    /// </summary>
+    /// <remarks>
+    /// See <c>mln_render_session_get_failure</c> in the <see
+    /// href="https://maplibre.org/maplibre-native-ffi/reference/c/render__session_8h.html">C API reference</see>.
+    /// </remarks>
+    public void GetFailure()
+    {
+        using var call = Enter(this);
+        Check(NativeMethods.mln_render_session_get_failure(Handle, Diagnostic));
+    }
+
+    /// <summary>
     /// Copies the latest render-session snapshot from any native thread.
     /// </summary>
     /// <remarks>
@@ -546,7 +561,10 @@ public sealed unsafe partial class RenderSessionHandle
     /// <see
     /// href="https://maplibre.org/maplibre-native-ffi/reference/c/texture_8h.html">C API reference</see>.
     /// </remarks>
+    [global::System.Runtime.Versioning.SupportedOSPlatform("ios")]
+    [global::System.Runtime.Versioning.SupportedOSPlatform("maccatalyst")]
     [global::System.Runtime.Versioning.SupportedOSPlatform("macos")]
+    [global::System.Runtime.Versioning.SupportedOSPlatform("tvos")]
     public Task SetMetalBorrowedTextureTargetAsync(MetalBorrowedTextureDescriptor descriptor)
     {
         using var scope = new NativeCallScope(this);
@@ -568,7 +586,10 @@ public sealed unsafe partial class RenderSessionHandle
     /// See <c>mln_render_session_set_metal_surface_target</c> in the <see
     /// href="https://maplibre.org/maplibre-native-ffi/reference/c/surface_8h.html">C API reference</see>.
     /// </remarks>
+    [global::System.Runtime.Versioning.SupportedOSPlatform("ios")]
+    [global::System.Runtime.Versioning.SupportedOSPlatform("maccatalyst")]
     [global::System.Runtime.Versioning.SupportedOSPlatform("macos")]
+    [global::System.Runtime.Versioning.SupportedOSPlatform("tvos")]
     public Task SetMetalSurfaceTargetAsync(MetalSurfaceDescriptor descriptor)
     {
         using var scope = new NativeCallScope(this);
@@ -636,6 +657,10 @@ public sealed unsafe partial class RenderSessionHandle
     /// <see
     /// href="https://maplibre.org/maplibre-native-ffi/reference/c/texture_8h.html">C API reference</see>.
     /// </remarks>
+    [global::System.Runtime.Versioning.SupportedOSPlatform("android")]
+    [global::System.Runtime.Versioning.SupportedOSPlatform("linux")]
+    [global::System.Runtime.Versioning.SupportedOSPlatform("macos")]
+    [global::System.Runtime.Versioning.SupportedOSPlatform("windows")]
     public Task SetVulkanBorrowedTextureTargetAsync(VulkanBorrowedTextureDescriptor descriptor)
     {
         using var scope = new NativeCallScope(this);
@@ -657,6 +682,10 @@ public sealed unsafe partial class RenderSessionHandle
     /// See <c>mln_render_session_set_vulkan_surface_target</c> in the <see
     /// href="https://maplibre.org/maplibre-native-ffi/reference/c/surface_8h.html">C API reference</see>.
     /// </remarks>
+    [global::System.Runtime.Versioning.SupportedOSPlatform("android")]
+    [global::System.Runtime.Versioning.SupportedOSPlatform("linux")]
+    [global::System.Runtime.Versioning.SupportedOSPlatform("macos")]
+    [global::System.Runtime.Versioning.SupportedOSPlatform("windows")]
     public Task SetVulkanSurfaceTargetAsync(VulkanSurfaceDescriptor descriptor)
     {
         using var scope = new NativeCallScope(this);

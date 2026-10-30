@@ -8,7 +8,7 @@
 description = "Generate the TypeScript API reference HTML with TypeDoc."
 run = '''
 rm -rf build/typedoc
-pnpm exec typedoc --entryPoints src/index.ts src/browser.ts --excludeInternal --out build/typedoc \
+pnpm exec typedoc --entryPoints src/index.ts src/browser.ts src/hermes.ts --excludeInternal --out build/typedoc \
   --name @maplibre/native-ffi --readme none
 '''
 
@@ -36,18 +36,6 @@ rm -rf build/ohpm
 scripts/pack-ohpm.sh --version "$usage_version" build/ohpm "$usage_preset"
 '''
 
-[tasks._check-preset]
-hide = true
-usage = 'arg "<preset>"'
-run = '''
-case "$usage_preset" in
-  windows-*)
-    echo "error: the TypeScript binding does not support Windows yet" >&2
-    exit 2
-    ;;
-esac
-'''
-
 # The test task builds the addon first.
 [tasks._test-arkts]
 hide = true
@@ -58,3 +46,24 @@ run = '''
 cmake --build "native/build/$usage_preset" --target maplibre_native_ffi_test_graphics
 scripts/test-arkts.sh "$usage_preset"
 '''
+
+[tasks."build:hermes"]
+description = "Build the shared TypeScript suite and lifecycle probe with official Hermes."
+usage = '''
+arg "<preset>" {
+  choices "android-arm-egl" "android-arm-vulkan" "android-arm64-egl" "android-arm64-vulkan" "android-x86-egl" "android-x86-vulkan" "android-x64-egl" "android-x64-vulkan" "ios-arm64-metal" "ios-simulator-arm64-metal" "ios-maccatalyst-arm64-metal" "tvos-arm64-metal" "tvos-simulator-arm64-metal" "visionos-arm64-metal" "visionos-simulator-arm64-metal"
+}
+'''
+tools = { "core:java" = "{{vars.java_version}}" }
+depends = [{ task = "//:build", args = ["{{usage.preset}}"] }]
+run = 'python scripts/hermes.py build "$usage_preset"'
+
+[tasks."test:hermes"]
+description = "Run the Hermes TypeScript suite, graphics readback, and runtime teardown."
+usage = '''
+arg "<preset>" {
+  choices "android-x64-egl" "android-x64-vulkan" "android-arm64-egl" "android-arm64-vulkan" "ios-simulator-arm64-metal" "ios-maccatalyst-arm64-metal" "tvos-simulator-arm64-metal" "visionos-simulator-arm64-metal"
+}
+'''
+depends = [{ task = ":build:hermes", args = ["{{usage.preset}}"] }]
+run = 'python scripts/hermes.py test "$usage_preset"'

@@ -5,13 +5,16 @@ import pathlib
 import tempfile
 import unittest
 
-from python_release import BACKENDS, prepare
+from python_release import BACKENDS, embed_wheel, pack, prepare, runtime_metadata
+from sbom import component, document, package_inventory
+from wheel.wheelfile import WheelFile
 
 API = """\
 [project]
 name = "maplibre-native-ffi"
 version = "0.0.0"
 license = "BSD-2-Clause"
+license-files = ["LICENSE"]
 """
 
 RUNTIME = """\
@@ -19,6 +22,7 @@ RUNTIME = """\
 name = "maplibre-native-ffi-runtime-{backend}"
 version = "0.0.0"
 license = "BSD-2-Clause"
+license-files = ["LICENSE", "licenses/*"]
 dependencies = ["maplibre-native-ffi==0.0.0"]
 """
 
@@ -44,9 +48,7 @@ class PythonReleaseTest(unittest.TestCase):
             json.dumps({"platform": {"id": "macos-arm64"}, "backend": backend})
         )
 
-    def test_every_distribution_takes_the_version_and_every_runtime_pins_the_api(
-        self,
-    ) -> None:
+    def test_the_api_distribution_takes_the_version(self) -> None:
         prepare(self.package, "0.202610.2.dev202610221817")
 
         self.assertEqual(
@@ -56,47 +58,118 @@ class PythonReleaseTest(unittest.TestCase):
             'license = "BSD-2-Clause"\nlicense-files = ["LICENSE"]\n',
         )
         self.assertIn("BSD", (self.package / "LICENSE").read_text())
-        for backend in BACKENDS:
-            runtime = self.package / "runtimes" / backend
-            self.assertEqual(
-                (runtime / "pyproject.toml").read_text(),
-                f'[project]\nname = "maplibre-native-ffi-runtime-{backend}"\n'
-                'version = "0.202610.2.dev202610221817"\n'
-                'license = "BSD-2-Clause"\n'
-                'license-files = ["LICENSE", "licenses/*"]\n'
-                'dependencies = ["maplibre-native-ffi==0.202610.2.dev202610221817"]\n',
-            )
-            self.assertIn("BSD", (runtime / "LICENSE").read_text())
-            self.assertFalse((runtime / "licenses").exists())
 
-    def test_the_repository_projects_match_what_it_stamps(self) -> None:
+    def test_the_repository_api_matches_what_it_stamps(self) -> None:
         source = pathlib.Path(__file__).resolve().parents[2] / "bindings/python"
-        for project in ("", *(f"runtimes/{backend}" for backend in BACKENDS)):
-            (self.package / project / "pyproject.toml").write_text(
-                (source / project / "pyproject.toml").read_text()
-            )
+        (self.package / "pyproject.toml").write_text(
+            (source / "pyproject.toml").read_text()
+        )
 
         prepare(self.package, "0.202610.2")
-
-    def test_the_prefix_backend_runtime_takes_the_native_notices(self) -> None:
-        self.describe("metal")
-
-        prepare(self.package, "0.202610.2", self.prefix)
-
-        runtimes = self.package / "runtimes"
-        self.assertEqual((runtimes / "metal/licenses/icu.txt").read_text(), "ICU")
-        self.assertFalse((runtimes / "opengl/licenses").exists())
-        self.assertFalse((runtimes / "vulkan/licenses").exists())
 
     def test_rejects_a_backend_without_a_runtime(self) -> None:
         self.describe("webgpu")
 
         with self.assertRaisesRegex(SystemExit, "no Python runtime serves"):
-            prepare(self.package, "0.202610.2", self.prefix)
+            runtime_metadata(self.package, self.prefix)
 
     def test_rejects_a_version_outside_the_release_scheme(self) -> None:
         with self.assertRaisesRegex(SystemExit, "invalid release version"):
             prepare(self.package, "0.1.0.dev202610221817")
+
+
+class RuntimeWheelTest(unittest.TestCase):
+    def test_versions_metadata_preserving_the_extension_tags_and_licenses(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            inputs, output = root / "inputs", root / "output"
+            inputs.mkdir()
+            name = "maplibre_native_ffi_runtime_opengl"
+            tags = "cp314-cp314-android_27_arm64_v8a"
+            stem = f"{name}-0.0.0"
+            wheel = inputs / f"{stem}-{tags}.whl"
+            files = {
+                f"{name}/_native.so": b"tested extension",
+                f"{stem}.dist-info/METADATA": (
+                    b"Metadata-Version: 2.4\n"
+                    b"Name: maplibre-native-ffi-runtime-opengl\n"
+                    b"Version: 0.0.0\nRequires-Dist: maplibre-native-ffi==0.0.0\n"
+                ),
+                f"{stem}.dist-info/WHEEL": f"Wheel-Version: 1.0\nTag: {tags}\n".encode(),
+                f"{stem}.dist-info/licenses/icu.txt": b"ICU notices",
+            }
+            with WheelFile(wheel, "w") as source:
+                for path, contents in files.items():
+                    source.writestr(path, contents)
+                source.writestr(f"{stem}.dist-info/sboms/cargo.cdx.json", "{}")
+            native = component("maplibre-native-c", "0.1.0", "BSD-2-Clause")
+            native["group"] = "org.maplibre.nativeffi"
+            native["properties"] = [
+                {"name": "maplibre:source-commit", "value": "abc123"}
+            ]
+            vendor = component("dependency", "1.2.3", "MIT")
+            inventory = package_inventory(
+                "maplibre-native-ffi-runtime-opengl",
+                "0.0.0",
+                "pypi",
+                [document(native, [vendor], {native["bom-ref"]: {vendor["bom-ref"]}})],
+            )
+            inventory["metadata"]["component"]["properties"] = native["properties"]
+            embed_wheel(wheel, inventory)
+            for version in ("0.202610.3", "0.202611.0.dev202610291234"):
+                pack(inputs, output, version)
+                with WheelFile(output / f"{name}-{version}-{tags}.whl") as stamped:
+                    self.assertEqual(
+                        [path for path in stamped.namelist() if "/sboms/" in path],
+                        [
+                            f"{name}-{version}.dist-info/sboms/maplibre-native-ffi.cdx.json"
+                        ],
+                    )
+                    published = json.loads(
+                        stamped.read(
+                            f"{name}-{version}.dist-info/sboms/maplibre-native-ffi.cdx.json"
+                        )
+                    )
+                    self.assertEqual(
+                        published["metadata"]["component"]["version"], version
+                    )
+                    native_component = next(
+                        item
+                        for item in published["components"]
+                        if item["name"] == "maplibre-native-c"
+                    )
+                    vendor_component = next(
+                        item
+                        for item in published["components"]
+                        if item["name"] == "dependency"
+                    )
+                    self.assertEqual(native_component["version"], version)
+                    self.assertEqual(vendor_component["version"], "1.2.3")
+                    self.assertIn(
+                        {"name": "maplibre:source-commit", "value": "abc123"},
+                        native_component["properties"],
+                    )
+                    refs = {item["bom-ref"] for item in published["components"]}
+                    for entry in published["dependencies"]:
+                        self.assertTrue(set(entry["dependsOn"]) <= refs)
+                    # WheelFile checks every RECORD hash as it reads the contents.
+                    for path, contents in files.items():
+                        if path.endswith("/METADATA"):
+                            contents = contents.replace(b"0.0.0", version.encode())
+                        self.assertEqual(
+                            stamped.read(
+                                path.replace(
+                                    "-0.0.0.dist-info/", f"-{version}.dist-info/"
+                                )
+                            ),
+                            contents,
+                        )
+
+    def test_missing_runtime_artifacts_fail_packing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            with self.assertRaisesRegex(SystemExit, "no runtime wheels"):
+                pack(root, root / "output", "0.202610.3")
 
 
 if __name__ == "__main__":

@@ -30,41 +30,27 @@ extract_preset() {
 }
 
 prepare_native_inputs() {
-  # The Linux, FreeBSD, and Windows installs also feed the JVM runtime
-  # classifiers.
-  local presets=(
-    android-arm-egl
-    android-arm-vulkan
-    android-arm64-egl
-    android-arm64-vulkan
-    android-x64-egl
-    android-x64-vulkan
-    linux-gnu-arm64-egl
-    linux-gnu-arm64-vulkan
-    linux-gnu-x64-egl
-    linux-gnu-x64-vulkan
-    linux-musl-arm64-egl
-    linux-musl-arm64-vulkan
-    linux-musl-x64-egl
-    linux-musl-x64-vulkan
-    freebsd-x64-egl
-    freebsd-x64-vulkan
-    macos-arm64-egl
-    macos-arm64-vulkan
-    macos-arm64-metal
-    ios-arm64-metal
-    ios-simulator-arm64-metal
-    tvos-arm64-metal
-    tvos-simulator-arm64-metal
-    windows-x64-wgl
-    windows-arm64-wgl
-    windows-x64-vulkan
-    windows-arm64-vulkan
-  )
-
+  local presets preset
+  presets="$(python3 -m tools.ci.plan --package-inputs kotlin-maven)"
   rm -rf "$build_root"
-  for preset in "${presets[@]}"; do
+  while IFS= read -r preset; do
     extract_preset "$preset"
+  done <<< "$presets"
+}
+
+prepare_browser_runtimes() {
+  local backend preset directory
+  for backend in webgl webgpu; do
+    preset="emscripten-wasm32-${backend}"
+    directory="${build_root}/${preset}/install/share/maplibre-native-kotlin"
+    rm -rf "$directory"
+    cmake -S bindings/kotlin/wasm --preset "$preset" \
+      -B "${build_root}/${preset}/module" \
+      -DMLN_FFI_NATIVE_PREFIX="${build_root}/${preset}/install" \
+      -DCMAKE_INSTALL_PREFIX="$directory"
+    cmake --build "${build_root}/${preset}/module" \
+      --target maplibre_native_kotlin --config Release --parallel
+    cmake --install "${build_root}/${preset}/module" --component maplibre_native_kotlin --config Release
   done
 }
 
@@ -79,7 +65,7 @@ add_publications() {
 }
 
 publish() {
-  local android_native=(AndroidNativeArm32 AndroidNativeArm64 AndroidNativeX64)
+  local android_native=(AndroidNativeArm32 AndroidNativeArm64 AndroidNativeX86 AndroidNativeX64)
   local linux=(LinuxX64 LinuxArm64)
   local apple=(MacosArm64 IosArm64 IosSimulatorArm64 TvosArm64 TvosSimulatorArm64)
 
@@ -95,8 +81,9 @@ publish() {
     ":bindings:kotlin:runtimes:vulkan:publishAndroidPublicationTo${repository}"
 
   publication_tasks=()
-  add_publications :bindings:kotlin KotlinMultiplatform Jvm "${apple[@]}"
-  add_publications :bindings:kotlin:runtimes:opengl KotlinMultiplatform Jvm MacosArm64
+  add_publications :bindings:kotlin KotlinMultiplatform Jvm WasmJs "${apple[@]}"
+  add_publications :bindings:kotlin:runtimes:opengl KotlinMultiplatform Jvm MacosArm64 WasmJs
+  add_publications :bindings:kotlin:runtimes:webgpu KotlinMultiplatform WasmJs
   add_publications :bindings:kotlin:runtimes:vulkan KotlinMultiplatform Jvm MacosArm64
   add_publications :bindings:kotlin:runtimes:metal KotlinMultiplatform Jvm "${apple[@]}"
   ./gradlew "$@" "${publication_tasks[@]}"
@@ -117,6 +104,7 @@ case "$operation" in
     staging_root="${staging_base}/maven-staging"
     rm -rf "$staging_root"
     prepare_native_inputs
+    prepare_browser_runtimes
     release_version_args=()
     if [[ -n "$version" ]]; then
       release_version_args=("-Pmaplibre.maven.version=$version")
@@ -125,6 +113,7 @@ case "$operation" in
       "${release_version_args[@]}" \
       -Pmaplibre.localBuild="$build_root" \
       -Pmaplibre.maven.localRepository="$staging_root"
+    python3 tools/release/kotlin_release.py sboms "$staging_root"
     ;;
   verify)
     if [[ "$#" -lt 2 || "$#" -gt 3 ]]; then

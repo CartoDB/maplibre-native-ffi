@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Globalization;
+using System.Runtime.ExceptionServices;
 using Xunit;
 
 namespace Maplibre.NativeFfi.Tests;
@@ -54,10 +55,43 @@ internal static class Gc
         GC.Collect();
     }
 
+    // Mono conservatively scans native stacks. Run capture construction and
+    // liveness probes on threads that exit, so stale stack words cannot root them.
+    internal static T OnThread<T>(Func<T> action)
+    {
+        T result = default!;
+        Exception? failure = null;
+        var worker = new Thread(() =>
+        {
+            try
+            {
+                result = action();
+            }
+            catch (Exception error)
+            {
+                failure = error;
+            }
+        });
+        worker.Start();
+        worker.Join();
+        if (failure is not null)
+            ExceptionDispatchInfo.Capture(failure).Throw();
+        return result;
+    }
+
+    internal static void OnThread(Action action) =>
+        OnThread(() =>
+        {
+            action();
+            return true;
+        });
+
     internal static bool IsAlive(WeakReference value)
     {
+        // Collect before starting the probe: its OS stack may reuse a former probe's
+        // stale target pointer, which Mono would conservatively mark during collection.
         Collect();
-        return value.IsAlive;
+        return OnThread(() => value.IsAlive);
     }
 
     /// <summary>

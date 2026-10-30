@@ -2,7 +2,7 @@ import json
 import unittest
 
 from tools.ci.plan import ROOT, targets
-from tools.ci.suites import android_commands
+from tools.ci.suites import consumer_commands
 
 
 class DartAndroidTest(unittest.TestCase):
@@ -20,11 +20,21 @@ class DartAndroidTest(unittest.TestCase):
                 preset = f"android-{arch}-{backend}"
                 self.assertIn(
                     f"mise run //bindings/dart:{action} {preset}",
-                    android_commands(self.targets[preset], abi),
+                    [
+                        " ".join(command)
+                        for command in consumer_commands(self.targets[preset])
+                    ],
                 )
 
-    def test_api_26_suites_run_before_python_replaces_the_emulator(self):
-        preset = "android-x64-egl"
-        commands = android_commands(self.targets[preset], "x86_64")
-        self.assertEqual(commands[-1], f"mise run //bindings/python:test {preset}")
-        self.assertIn(f"mise run //bindings/dart:test:android {preset}", commands[:-1])
+    def test_android_x86_has_no_flutter_target(self):
+        for backend in ("egl", "vulkan"):
+            preset = f"android-x86-{backend}"
+            self.assertFalse(
+                any(
+                    "//bindings/dart:" in command
+                    for command in [
+                        " ".join(command)
+                        for command in consumer_commands(self.targets[preset])
+                    ]
+                )
+            )
